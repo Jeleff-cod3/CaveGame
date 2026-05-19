@@ -1,122 +1,86 @@
 using UnityEngine;
-using System.Collections.Generic;
 
-public class PixelArtTerrain : MonoBehaviour
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))]
+public class SmoothTerrain : MonoBehaviour
 {
-    [Header("Map Settings")]
-    public int mapWidth = 128;
-    public int mapHeight = 128;
-    public int chunkSize = 16;
+    [Header("Terrain Settings")]
+    public int width = 256;          // X-axis vertices (increase for bigger maps)
+    public int height = 256;         // Z-axis vertices
+    public float scale = 1f;         // distance between vertices
+    public float heightNoise = 10f;  // max vertical height
+    public float noiseScale = 20f;   // controls the "size" of hills
 
-    [Header("Tile Settings")]
-    public float tileScale = 1f;
-    public float heightNoise = 0.2f;
+    public Material terrainMaterial; // one material for the whole mesh
 
-    [Header("Terrain Noise")]
-    public float terrainNoise = 12f;
-    public float dirtAmount = 0.35f;
-
-    public Material grassMaterial;
-    public Material dirtMaterial;
-
+    private Mesh mesh;
     private float seed;
 
     void Start()
     {
         seed = Random.Range(0f, 10000f);
-        GenerateChunks();
+        GenerateTerrain();
     }
 
-    void GenerateChunks()
+    void GenerateTerrain()
     {
-        int chunksX = Mathf.CeilToInt(mapWidth / (float)chunkSize);
-        int chunksZ = Mathf.CeilToInt(mapHeight / (float)chunkSize);
+        mesh = new Mesh();
+        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32; // support large meshes
+        GetComponent<MeshFilter>().mesh = mesh;
+        GetComponent<MeshRenderer>().material = terrainMaterial;
 
-        for (int cx = 0; cx < chunksX; cx++)
+        int vertCountX = width + 1;
+        int vertCountZ = height + 1;
+
+        Vector3[] vertices = new Vector3[vertCountX * vertCountZ];
+        Vector2[] uvs = new Vector2[vertices.Length];
+        int[] triangles = new int[width * height * 6];
+
+        // --- Generate vertices ---
+        for (int z = 0; z < vertCountZ; z++)
         {
-            for (int cz = 0; cz < chunksZ; cz++)
+            for (int x = 0; x < vertCountX; x++)
             {
-                GenerateChunk(cx, cz);
-            }
-        }
-    }
+                // Multiple Perlin noise layers for variety
+                float baseNoise = Mathf.PerlinNoise((x + seed) / noiseScale, (z + seed) / noiseScale) * heightNoise;
+                float detailNoise = Mathf.PerlinNoise((x + seed + 1000) / (noiseScale / 2f), (z + seed + 1000) / (noiseScale / 2f)) * (heightNoise / 2f);
+                float macroNoise = Mathf.PerlinNoise((x + seed + 2000) / (noiseScale * 2f), (z + seed + 2000) / (noiseScale * 2f)) * (heightNoise * 1.5f);
 
-    void GenerateChunk(int chunkX, int chunkZ)
-    {
-        GameObject chunk = new GameObject($"Chunk_{chunkX}_{chunkZ}");
-        chunk.transform.parent = transform;
+                // Regional factor to create valleys and highlands
+                float regionFactor = Mathf.PerlinNoise((x + seed) / (noiseScale * 4f), (z + seed) / (noiseScale * 4f));
 
-        MeshFilter mf = chunk.AddComponent<MeshFilter>();
-        MeshRenderer mr = chunk.AddComponent<MeshRenderer>();
-        mr.materials = new Material[] { grassMaterial, dirtMaterial };
+                float y = (baseNoise + detailNoise + macroNoise) * regionFactor;
 
-        List<Vector3> vertices = new List<Vector3>();
-        List<int> grassTriangles = new List<int>();
-        List<int> dirtTriangles = new List<int>();
-        List<Vector2> uvs = new List<Vector2>();
-
-        int startX = chunkX * chunkSize;
-        int startZ = chunkZ * chunkSize;
-        int vertexIndex = 0;
-
-        for (int x = 0; x < chunkSize && startX + x < mapWidth; x++)
-        {
-            for (int z = 0; z < chunkSize && startZ + z < mapHeight; z++)
-            {
-                float noiseValue = Mathf.PerlinNoise((startX + x + seed) / terrainNoise, (startZ + z + seed) / terrainNoise);
-                float y = noiseValue * heightNoise;
-
-                // Add four vertices per tile
-                vertices.Add(new Vector3((startX + x) * tileScale, y, (startZ + z) * tileScale));
-                vertices.Add(new Vector3((startX + x) * tileScale, y, (startZ + z + 1) * tileScale));
-                vertices.Add(new Vector3((startX + x + 1) * tileScale, y, (startZ + z + 1) * tileScale));
-                vertices.Add(new Vector3((startX + x + 1) * tileScale, y, (startZ + z) * tileScale));
-
-                // UVs
-                uvs.Add(new Vector2(0, 0));
-                uvs.Add(new Vector2(0, 1));
-                uvs.Add(new Vector2(1, 1));
-                uvs.Add(new Vector2(1, 0));
-
-                // Assign triangles to correct submesh
-                if (noiseValue < dirtAmount)
-                {
-                    // Dirt submesh = 1
-                    dirtTriangles.Add(vertexIndex);
-                    dirtTriangles.Add(vertexIndex + 1);
-                    dirtTriangles.Add(vertexIndex + 2);
-                    dirtTriangles.Add(vertexIndex);
-                    dirtTriangles.Add(vertexIndex + 2);
-                    dirtTriangles.Add(vertexIndex + 3);
-                }
-                else
-                {
-                    // Grass submesh = 0
-                    grassTriangles.Add(vertexIndex);
-                    grassTriangles.Add(vertexIndex + 1);
-                    grassTriangles.Add(vertexIndex + 2);
-                    grassTriangles.Add(vertexIndex);
-                    grassTriangles.Add(vertexIndex + 2);
-                    grassTriangles.Add(vertexIndex + 3);
-                }
-
-                vertexIndex += 4;
+                vertices[z * vertCountX + x] = new Vector3(x * scale, y, z * scale);
+                uvs[z * vertCountX + x] = new Vector2((float)x / width, (float)z / height);
             }
         }
 
-        Mesh mesh = new Mesh();
-        mesh.vertices = vertices.ToArray();
-        mesh.uv = uvs.ToArray();
-        mesh.subMeshCount = 2; // grass and dirt
+        // --- Generate triangles ---
+        int t = 0;
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int i = z * vertCountX + x;
 
-        mesh.SetTriangles(grassTriangles.ToArray(), 0);
-        mesh.SetTriangles(dirtTriangles.ToArray(), 1);
+                triangles[t++] = i;
+                triangles[t++] = i + vertCountX;
+                triangles[t++] = i + 1;
 
+                triangles[t++] = i + 1;
+                triangles[t++] = i + vertCountX;
+                triangles[t++] = i + vertCountX + 1;
+            }
+        }
+
+        // --- Assign mesh ---
+        mesh.vertices = vertices;
+        mesh.triangles = triangles;
+        mesh.uv = uvs;
         mesh.RecalculateNormals();
 
-        mf.mesh = mesh;
-
-        MeshCollider mc = chunk.AddComponent<MeshCollider>();
+        // --- Collider ---
+        MeshCollider mc = GetComponent<MeshCollider>();
         mc.sharedMesh = mesh;
         mc.convex = false;
     }
