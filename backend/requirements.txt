@@ -4,3 +4,4 @@ channels>=4.1,<5.0
 channels-redis>=4.2,<5.0
 daphne>=4.1,<5.0
 psycopg2-binary>=2.9,<3.0
+gunicorn>=26.0,<27.0

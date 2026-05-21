@@ -474,6 +474,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         canvasObject.AddComponent<GraphicRaycaster>();
 
         loginPanel = CreatePanel("Login Panel");
+        loginPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(680f, 620f);
         AddKicker(loginPanel.transform, "WALLOW ONLINE");
         AddTitle(loginPanel.transform, "Enter The Cave");
         AddText(loginPanel.transform, "Spin up a guest token, then create or join a lobby from the same backend.", 18, MutedText, TextAnchor.MiddleLeft, 64f);
@@ -484,6 +485,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         loginStatusText = AddText(loginPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
 
         findPanel = CreatePanel("Find Games Panel");
+        findPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(680f, 560f);
         AddKicker(findPanel.transform, "MULTIPLAYER");
         AddTitle(findPanel.transform, "Lobby Control");
         AddText(findPanel.transform, "Host a four-player cave run or enter a friend code to join their lobby.", 18, MutedText, TextAnchor.MiddleLeft, 64f);
@@ -503,7 +505,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         slotGrid.transform.SetParent(lobbyPanel.transform, false);
         VerticalLayoutGroup slotLayout = slotGrid.AddComponent<VerticalLayoutGroup>();
         slotLayout.spacing = 8f;
-        slotLayout.childControlHeight = false;
+        slotLayout.childControlHeight = true;
         slotLayout.childForceExpandHeight = false;
         slotLayout.childControlWidth = true;
         slotLayout.childForceExpandWidth = true;
@@ -555,7 +557,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(34, 34, 30, 30);
         layout.spacing = 14f;
-        layout.childControlHeight = false;
+        layout.childControlHeight = true;
         layout.childForceExpandHeight = false;
         layout.childControlWidth = true;
         layout.childForceExpandWidth = true;
@@ -704,7 +706,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         VerticalLayoutGroup contentLayout = content.AddComponent<VerticalLayoutGroup>();
         contentLayout.padding = new RectOffset(0, 0, 7, 7);
         contentLayout.spacing = 0f;
-        contentLayout.childControlHeight = false;
+        contentLayout.childControlHeight = true;
         contentLayout.childForceExpandHeight = false;
         content.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
