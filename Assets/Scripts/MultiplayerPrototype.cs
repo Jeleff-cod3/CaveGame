@@ -8,7 +8,7 @@ using UnityEngine.UI;
 
 public sealed class MultiplayerPrototype : MonoBehaviour
 {
-    private const string DefaultServerUrl = "http://127.0.0.1:8000";
+    private const string DefaultServerUrl = "https://cavegame-production.up.railway.app";
     private const float StateSendInterval = 0.05f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
     private const int DefaultMaxPlayers = 4;

@@ -112,7 +112,7 @@ public sealed class CaveGameApiClient
 
     private static string NormalizeBaseUrl(string raw)
     {
-        string url = string.IsNullOrWhiteSpace(raw) ? "http://127.0.0.1:8000" : raw.Trim();
+        string url = string.IsNullOrWhiteSpace(raw) ? "https://cavegame-production.up.railway.app" : raw.Trim();
         if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
