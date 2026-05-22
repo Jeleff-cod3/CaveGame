@@ -46,6 +46,7 @@ class PlayerRuntimeState:
 class RoomRuntimeState:
     lobby_id: int
     players: dict[int, PlayerRuntimeState] = field(default_factory=dict)
+    connections: dict[str, object] = field(default_factory=dict)
     started: bool = False
 
 

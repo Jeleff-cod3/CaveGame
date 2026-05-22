@@ -22,6 +22,21 @@ from .validators import is_valid_player_state
 JSON_SEPARATORS = (",", ":")
 
 
+async def send_to_game_room(room, payload: dict, sender_channel_name: str | None = None) -> None:
+    stale_channels = []
+    for channel_name, consumer in list(room.connections.items()):
+        if channel_name == sender_channel_name:
+            continue
+
+        try:
+            await consumer.send_json(payload)
+        except Exception:
+            stale_channels.append(channel_name)
+
+    for channel_name in stale_channels:
+        room.connections.pop(channel_name, None)
+
+
 @database_sync_to_async
 def get_lobby_snapshot(lobby_id: int) -> dict | None:
     try:
@@ -166,8 +181,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         self.player_id = self.member["playerId"]
 
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-
         room = get_room(self.lobby_id)
         room.started = True
         room.players[self.user.id] = PlayerRuntimeState(
@@ -175,23 +188,21 @@ class GameConsumer(AsyncWebsocketConsumer):
             player_id=self.player_id,
             channel_name=self.channel_name,
         )
+        room.connections[self.channel_name] = self
 
         await self.accept()
         await self.send_room_snapshot()
 
-        await self.channel_layer.group_send(
-            self.room_group_name,
+        await send_to_game_room(
+            room,
             {
-                "type": "broadcast_event",
-                "payload": {
-                    "type": PLAYER_JOINED,
-                    "lobbyId": self.lobby_id,
-                    "playerId": self.player_id,
-                    "userId": self.user.id,
-                    "slot": self.member["slot"],
-                },
-                "sender_channel_name": self.channel_name,
+                "type": PLAYER_JOINED,
+                "lobbyId": self.lobby_id,
+                "playerId": self.player_id,
+                "userId": self.user.id,
+                "slot": self.member["slot"],
             },
+            self.channel_name,
         )
 
     async def disconnect(self, close_code):
@@ -202,19 +213,16 @@ class GameConsumer(AsyncWebsocketConsumer):
         if hasattr(self, "user") and self.user.id in room.players:
             del room.players[self.user.id]
 
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        room.connections.pop(self.channel_name, None)
 
         if hasattr(self, "player_id"):
-            await self.channel_layer.group_send(
-                self.room_group_name,
+            await send_to_game_room(
+                room,
                 {
-                    "type": "broadcast_event",
-                    "payload": {
-                        "type": PLAYER_LEFT,
-                        "lobbyId": self.lobby_id,
-                        "playerId": self.player_id,
-                        "userId": self.user.id,
-                    },
+                    "type": PLAYER_LEFT,
+                    "lobbyId": self.lobby_id,
+                    "playerId": self.player_id,
+                    "userId": self.user.id,
                 },
             )
 
@@ -275,14 +283,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             **player.as_payload(),
         }
 
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "broadcast_event",
-                "payload": payload,
-                "sender_channel_name": self.channel_name,
-            },
-        )
+        await send_to_game_room(room, payload, self.channel_name)
 
     async def send_room_snapshot(self):
         room = get_room(self.lobby_id)

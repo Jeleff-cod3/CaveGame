@@ -70,6 +70,21 @@ public sealed class SocketTypeEnvelopeDto
 }
 
 [Serializable]
+public sealed class PingDto
+{
+    public string type = "ping";
+    public double clientTime;
+}
+
+[Serializable]
+public sealed class PongDto
+{
+    public string type;
+    public double clientTime;
+    public double serverTime;
+}
+
+[Serializable]
 public sealed class LobbySnapshotDto
 {
     public string type;

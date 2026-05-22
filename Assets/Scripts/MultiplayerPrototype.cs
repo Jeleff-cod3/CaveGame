@@ -9,10 +9,12 @@ using UnityEngine.UI;
 public sealed class MultiplayerPrototype : MonoBehaviour
 {
     private const string DefaultServerUrl = "https://cavegame-production.up.railway.app";
-    private const float StateSendInterval = 1f;
-    private const float ForcedStateSendInterval = 1f;
+    private const float StateSendInterval = 1f / 30f;
+    private const float ForcedStateSendInterval = 0.5f;
     private const float MinPositionDeltaSqr = 0.0004f;
     private const float MinRotationDelta = 1.5f;
+    private const float GamePingInterval = 2f;
+    private const float HudRefreshInterval = 0.25f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
@@ -41,6 +43,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private bool hasSentInitialState;
     private Vector3 lastSentPosition;
     private Vector3 lastSentEulerAngles;
+    private float nextGamePingTime;
+    private float nextHudRefreshTime;
+    private float lastGameRttMs = -1f;
+    private float lastRemoteStateReceiveTime = -1f;
+    private float remoteStateRateWindowStart;
+    private int remoteStatesInWindow;
+    private int remoteStatesPerSecond;
 
     private Canvas canvas;
     private GameObject loginPanel;
@@ -110,6 +119,18 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             PlayerStateDto state = PlayerStateDto.FromTransform(localMember.playerId, ++stateSeq, localCube.transform, localCube.Velocity);
             gameSocket.SendJson(JsonUtility.ToJson(state));
             MarkStateSent(Time.unscaledTime);
+        }
+
+        if (Time.unscaledTime >= nextGamePingTime)
+        {
+            nextGamePingTime = Time.unscaledTime + GamePingInterval;
+            gameSocket.SendJson(JsonUtility.ToJson(new PingDto { clientTime = Time.realtimeSinceStartupAsDouble }));
+        }
+
+        if (Time.unscaledTime >= nextHudRefreshTime)
+        {
+            nextHudRefreshTime = Time.unscaledTime + HudRefreshInterval;
+            RefreshGameHud();
         }
     }
 
@@ -402,7 +423,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         gameSocket?.Close();
         gameSocket = new CaveGameSocketClient();
-        gameSocket.Opened += () => SetText(gameStatusText, "Connected to game socket. Sending transform state at 20 Hz.");
+        gameSocket.Opened += () => SetText(gameStatusText, "Connected to game socket. Sending transform state at up to 30 Hz.");
         gameSocket.ErrorReceived += error => SetText(gameStatusText, "Game socket error: " + error);
         gameSocket.Closed += _ => SetText(gameStatusText, "Game socket closed.");
         gameSocket.MessageReceived += HandleGameSocketMessage;
@@ -428,6 +449,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 break;
             case "player_state":
                 ApplyRemoteState(JsonUtility.FromJson<PlayerStateDto>(json));
+                break;
+            case "pong":
+                HandleGamePong(JsonUtility.FromJson<PongDto>(json));
                 break;
             case "player_left":
                 LobbyEventDto left = JsonUtility.FromJson<LobbyEventDto>(json);
@@ -455,6 +479,32 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         remote.ApplyState(state);
+        RecordRemoteStateReceived();
+    }
+
+    private void HandleGamePong(PongDto pong)
+    {
+        if (pong == null || pong.clientTime <= 0)
+        {
+            return;
+        }
+
+        lastGameRttMs = Mathf.Max(0f, (float)((Time.realtimeSinceStartupAsDouble - pong.clientTime) * 1000.0));
+    }
+
+    private void RecordRemoteStateReceived()
+    {
+        float now = Time.unscaledTime;
+        lastRemoteStateReceiveTime = now;
+
+        if (now - remoteStateRateWindowStart >= 1f)
+        {
+            remoteStatesPerSecond = remoteStatesInWindow;
+            remoteStatesInWindow = 0;
+            remoteStateRateWindowStart = now;
+        }
+
+        remoteStatesInWindow++;
     }
 
     private void RemoveRemotePlayer(string playerId)
@@ -497,6 +547,18 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lastSentEulerAngles = localCube.transform.eulerAngles;
     }
 
+    private void RefreshGameHud()
+    {
+        string rtt = lastGameRttMs >= 0f ? $"{lastGameRttMs:0} ms" : "measuring";
+        string lastRemote = lastRemoteStateReceiveTime >= 0f
+            ? $"{Mathf.Max(0f, (Time.unscaledTime - lastRemoteStateReceiveTime) * 1000f):0} ms ago"
+            : "none yet";
+
+        SetText(
+            gameStatusText,
+            $"WASD move, Space jump\nSocket RTT: {rtt} | Remote states: {remoteStatesPerSecond}/s | Last remote: {lastRemote}\nRelay: direct Daphne process, up to 30 Hz");
+    }
+
     private void ResetStateSendTracking()
     {
         stateSeq = 0;
@@ -505,6 +567,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         hasSentInitialState = false;
         lastSentPosition = Vector3.zero;
         lastSentEulerAngles = Vector3.zero;
+        nextGamePingTime = 0f;
+        nextHudRefreshTime = 0f;
+        lastGameRttMs = -1f;
+        lastRemoteStateReceiveTime = -1f;
+        remoteStateRateWindowStart = Time.unscaledTime;
+        remoteStatesInWindow = 0;
+        remoteStatesPerSecond = 0;
     }
 
     private void BuildUi()
