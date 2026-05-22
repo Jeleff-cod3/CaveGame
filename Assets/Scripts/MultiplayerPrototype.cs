@@ -9,7 +9,10 @@ using UnityEngine.UI;
 public sealed class MultiplayerPrototype : MonoBehaviour
 {
     private const string DefaultServerUrl = "https://cavegame-production.up.railway.app";
-    private const float StateSendInterval = 0.05f;
+    private const float StateSendInterval = 1f;
+    private const float ForcedStateSendInterval = 1f;
+    private const float MinPositionDeltaSqr = 0.0004f;
+    private const float MinRotationDelta = 1.5f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
@@ -34,6 +37,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private bool gameStarted;
     private int stateSeq;
     private float nextStateSendTime;
+    private float lastStateSendTime;
+    private bool hasSentInitialState;
+    private Vector3 lastSentPosition;
+    private Vector3 lastSentEulerAngles;
 
     private Canvas canvas;
     private GameObject loginPanel;
@@ -97,11 +104,12 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
-        if (Time.unscaledTime >= nextStateSendTime)
+        if (Time.unscaledTime >= nextStateSendTime && ShouldSendStateNow(Time.unscaledTime))
         {
             nextStateSendTime = Time.unscaledTime + StateSendInterval;
             PlayerStateDto state = PlayerStateDto.FromTransform(localMember.playerId, ++stateSeq, localCube.transform, localCube.Velocity);
             gameSocket.SendJson(JsonUtility.ToJson(state));
+            MarkStateSent(Time.unscaledTime);
         }
     }
 
@@ -327,6 +335,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         gameStarted = true;
+        ResetStateSendTracking();
         CacheGameStartedPlayerSlots(start);
         lobbySocket?.Close();
         HideAllPanels();
@@ -457,6 +466,45 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         Destroy(remote.gameObject);
         remoteCubes.Remove(playerId);
+    }
+
+    private bool ShouldSendStateNow(float now)
+    {
+        if (!hasSentInitialState)
+        {
+            return true;
+        }
+
+        if (now - lastStateSendTime >= ForcedStateSendInterval)
+        {
+            return true;
+        }
+
+        Transform cubeTransform = localCube.transform;
+        if ((cubeTransform.position - lastSentPosition).sqrMagnitude >= MinPositionDeltaSqr)
+        {
+            return true;
+        }
+
+        return Quaternion.Angle(Quaternion.Euler(lastSentEulerAngles), cubeTransform.rotation) >= MinRotationDelta;
+    }
+
+    private void MarkStateSent(float now)
+    {
+        hasSentInitialState = true;
+        lastStateSendTime = now;
+        lastSentPosition = localCube.transform.position;
+        lastSentEulerAngles = localCube.transform.eulerAngles;
+    }
+
+    private void ResetStateSendTracking()
+    {
+        stateSeq = 0;
+        nextStateSendTime = 0f;
+        lastStateSendTime = 0f;
+        hasSentInitialState = false;
+        lastSentPosition = Vector3.zero;
+        lastSentEulerAngles = Vector3.zero;
     }
 
     private void BuildUi()

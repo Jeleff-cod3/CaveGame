@@ -19,6 +19,8 @@ from .message_types import (
 from .room_state import PlayerRuntimeState, get_room
 from .validators import is_valid_player_state
 
+JSON_SEPARATORS = (",", ":")
+
 
 @database_sync_to_async
 def get_lobby_snapshot(lobby_id: int) -> dict | None:
@@ -144,7 +146,7 @@ class LobbyConsumer(AsyncWebsocketConsumer):
         await self.send_json(event["payload"])
 
     async def send_json(self, payload: dict):
-        await self.send(text_data=json.dumps(payload))
+        await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
 
 
 class GameConsumer(AsyncWebsocketConsumer):
@@ -305,4 +307,4 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.send_json(event["payload"])
 
     async def send_json(self, payload: dict):
-        await self.send(text_data=json.dumps(payload))
+        await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
