@@ -37,6 +37,12 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void Start()
     {
+        if (Mathf.Abs(transform.lossyScale.y) < 0.001f)
+        {
+            Debug.LogError("WorldChunkRenderer parent has Y scale near 0. This will flatten all chunks.");
+        }
+
+        Debug.Log($"WorldChunkRenderer scale: {transform.lossyScale}");
         GenerateWorld();
         DebugWorldHeightRange();
         PlacePlayerAtArenaCenter();
@@ -180,8 +186,10 @@ public class WorldChunkRenderer : MonoBehaviour
         int startZ = chunkCoord.y * chunkSize;
 
         GameObject chunkObject = new GameObject($"Chunk {chunkCoord.x}, {chunkCoord.y}");
-        chunkObject.transform.parent = transform;
-        chunkObject.transform.position = new Vector3(startX, 0f, startZ);
+        chunkObject.transform.SetParent(transform, false);
+        chunkObject.transform.localPosition = new Vector3(startX, 0f, startZ);
+        chunkObject.transform.localRotation = Quaternion.identity;
+        chunkObject.transform.localScale = Vector3.one;
 
         MeshFilter meshFilter = chunkObject.AddComponent<MeshFilter>();
         MeshRenderer meshRenderer = chunkObject.AddComponent<MeshRenderer>();

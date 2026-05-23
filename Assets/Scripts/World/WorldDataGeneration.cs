@@ -47,11 +47,19 @@ public static class WorldDataGenerator
                     distanceFromCenter
                 );
 
-                float resourceMask = 1f - Mathf.SmoothStep(
-                    resourceRadius - 30,
-                    resourceRadius,
-                    distanceFromCenter
-                );
+                float borderFadeStart = resourceRadius - 30f;
+                float borderFadeEnd = resourceRadius;
+
+                float resourceMask = 1f;
+
+                if (distanceFromCenter > borderFadeStart)
+                {
+                    resourceMask = 1f - Mathf.SmoothStep(
+                        borderFadeStart,
+                        borderFadeEnd,
+                        distanceFromCenter
+                    );
+                }
 
                 float baseNoise = GetFractalNoise(
                     x,
@@ -85,10 +93,7 @@ public static class WorldDataGenerator
                 float finalHeight = Mathf.Lerp(resourceHeight, arenaHeight, arenaMask);
 
                 // Fade the outside border down.
-                finalHeight *= resourceMask;
-
-                // Temporary debug boost so relief is clearly visible.
-                finalHeight *= 2.5f;
+                //finalHeight *= resourceMask;
 
                 finalHeight = Mathf.Clamp(finalHeight, 0f, 80f);
                 worldData.heights[x, z] = finalHeight;
@@ -112,7 +117,8 @@ public static class WorldDataGenerator
             }
         }
 
-        ShapeCaveArea(worldData);
+        //ShapeCaveArea(worldData);
+        ClampAllHeights(worldData);
 
         return worldData;
     }
@@ -184,6 +190,17 @@ public static class WorldDataGenerator
 
         float normalized = (noiseHeight + maxPossibleHeight) / (2f * maxPossibleHeight);
         return Mathf.Clamp01(normalized);
+    }
+
+    private static void ClampAllHeights(WorldData worldData)
+    {
+        for (int z = 0; z <= worldData.size; z++)
+        {
+            for (int x = 0; x <= worldData.size; x++)
+            {
+                worldData.heights[x, z] = Mathf.Clamp(worldData.heights[x, z], 0f, 80f);
+            }
+        }
     }
 
     private static void ShapeCaveArea(WorldData worldData)
