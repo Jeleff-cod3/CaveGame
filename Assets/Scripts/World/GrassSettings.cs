@@ -11,6 +11,9 @@ public class GrassSettings
 
     [Range(0f, 1f)]
     public float arenaDensity = 0.35f;
+    
+    [Range(0f, 1f)]
+    public float borderDensity = 0.22f;
 
     [Range(0f, 1f)]
     public float transitionDensity = 0.55f;

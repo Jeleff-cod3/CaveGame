@@ -175,7 +175,11 @@ public static class MeshGenerator
         }
         else if (zone == TerrainZone.Border)
         {
-            baseColor *= 0.65f;
+            baseColor = Color.Lerp(
+                baseColor,
+                settings.borderColor,
+                settings.borderTintStrength
+            );
         }
 
         float height = worldData.GetHeight(worldX, worldZ);

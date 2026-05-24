@@ -47,20 +47,6 @@ public static class WorldDataGenerator
                     distanceFromCenter
                 );
 
-                float borderFadeStart = resourceRadius - 30f;
-                float borderFadeEnd = resourceRadius;
-
-                float resourceMask = 1f;
-
-                if (distanceFromCenter > borderFadeStart)
-                {
-                    resourceMask = 1f - Mathf.SmoothStep(
-                        borderFadeStart,
-                        borderFadeEnd,
-                        distanceFromCenter
-                    );
-                }
-
                 float baseNoise = GetFractalNoise(
                     x,
                     z,
@@ -98,7 +84,19 @@ public static class WorldDataGenerator
                 finalHeight = Mathf.Clamp(finalHeight, 0f, 80f);
                 worldData.heights[x, z] = finalHeight;
 
-                if (distanceFromCenter <= arenaRadius)
+                int borderWidth = 12;
+
+                bool isOuterMapBorder =
+                    x < borderWidth ||
+                    z < borderWidth ||
+                    x > mapSize - borderWidth ||
+                    z > mapSize - borderWidth;
+
+                if (isOuterMapBorder)
+                {
+                    worldData.zones[x, z] = TerrainZone.Border;
+                }
+                else if (distanceFromCenter <= arenaRadius)
                 {
                     worldData.zones[x, z] = TerrainZone.Arena;
                 }
@@ -106,13 +104,9 @@ public static class WorldDataGenerator
                 {
                     worldData.zones[x, z] = TerrainZone.Transition;
                 }
-                else if (distanceFromCenter <= resourceRadius)
-                {
-                    worldData.zones[x, z] = TerrainZone.Resource;
-                }
                 else
                 {
-                    worldData.zones[x, z] = TerrainZone.Border;
+                    worldData.zones[x, z] = TerrainZone.Resource;
                 }
             }
         }

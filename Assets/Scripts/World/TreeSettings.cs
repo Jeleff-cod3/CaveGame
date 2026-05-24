@@ -32,6 +32,38 @@ public class TreeSettings
     [Range(0f, 45f)]
     public float maxSlopeAngle = 26f;
 
+    [Header("Acacia Shape")]
+    [Range(0f, 0.5f)]
+    public float trunkLeanStrength = 0.18f;
+
+    [Min(1)]
+    public int minBranchCount = 2;
+
+    [Min(1)]
+    public int maxBranchCount = 4;
+
+    public float minBranchLength = 1.2f;
+    public float maxBranchLength = 2.8f;
+
+    [Range(0f, 1f)]
+    public float branchUpwardBias = 0.35f;
+
+    [Header("Leaf Clumps")]
+    [Min(1)]
+    public int minLeafClumps = 4;
+
+    [Min(1)]
+    public int maxLeafClumps = 8;
+
+    public float minLeafClumpRadius = 0.7f;
+    public float maxLeafClumpRadius = 1.6f;
+
+    public float minLeafClumpHeight = 0.28f;
+    public float maxLeafClumpHeight = 0.65f;
+
+    [Range(0.1f, 1f)]
+    public float crownFlatness = 0.35f;
+
     [Header("Trunk")]
     public float minTrunkHeight = 1.3f;
     public float maxTrunkHeight = 2.3f;

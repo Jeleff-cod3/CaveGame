@@ -10,6 +10,16 @@ public struct TreeChunkMeshes
 
 public static class TreeChunkGenerator
 {
+    private const int MinBranchCount = 2;
+    private const int MaxBranchCount = 4;
+
+    private const int MinLeafClumps = 4;
+    private const int MaxLeafClumps = 8;
+
+    private const float TrunkLeanStrength = 0.16f;
+    private const float BranchUpwardBias = 0.28f;
+    private const float CrownFlatness = 0.34f;
+
     public static TreeChunkMeshes GenerateTreeMeshes(
         WorldData worldData,
         int startX,
@@ -65,8 +75,6 @@ public static class TreeChunkGenerator
 
                 float patchValue = Mathf.Lerp(largePatch, smallPatch, 0.45f);
 
-                // Continuous density boost instead of a hard threshold.
-                // This is the key fix for the "too scattered" problem.
                 float patchMultiplier = Mathf.Lerp(
                     0.55f,
                     1.75f + settings.patchStrength * 0.25f,
@@ -81,8 +89,18 @@ public static class TreeChunkGenerator
                 }
 
                 float jitterRange = settings.spacing * 0.45f;
-                float jitterX = Mathf.Lerp(-jitterRange, jitterRange, (float)random.NextDouble());
-                float jitterZ = Mathf.Lerp(-jitterRange, jitterRange, (float)random.NextDouble());
+
+                float jitterX = Mathf.Lerp(
+                    -jitterRange,
+                    jitterRange,
+                    (float)random.NextDouble()
+                );
+
+                float jitterZ = Mathf.Lerp(
+                    -jitterRange,
+                    jitterRange,
+                    (float)random.NextDouble()
+                );
 
                 float finalWorldX = worldX + jitterX;
                 float finalWorldZ = worldZ + jitterZ;
@@ -164,7 +182,8 @@ public static class TreeChunkGenerator
                     canopyHeight,
                     rotation,
                     settings.trunkColor,
-                    leafColor
+                    leafColor,
+                    random
                 );
             }
         }
@@ -175,11 +194,14 @@ public static class TreeChunkGenerator
         {
             Mesh treeMesh = new Mesh();
             treeMesh.indexFormat = IndexFormat.UInt32;
+
             treeMesh.SetVertices(treeVertices);
             treeMesh.SetTriangles(treeTriangles, 0);
             treeMesh.SetColors(treeColors);
+
             treeMesh.RecalculateNormals();
             treeMesh.RecalculateBounds();
+
             result.treeMesh = treeMesh;
         }
 
@@ -187,10 +209,13 @@ public static class TreeChunkGenerator
         {
             Mesh shadowMesh = new Mesh();
             shadowMesh.indexFormat = IndexFormat.UInt32;
+
             shadowMesh.SetVertices(shadowVertices);
             shadowMesh.SetTriangles(shadowTriangles, 0);
+
             shadowMesh.RecalculateNormals();
             shadowMesh.RecalculateBounds();
+
             result.shadowMesh = shadowMesh;
         }
 
@@ -203,10 +228,13 @@ public static class TreeChunkGenerator
         {
             case TerrainZone.Arena:
                 return settings.arenaDensity;
+
             case TerrainZone.Transition:
                 return settings.transitionDensity;
+
             case TerrainZone.Resource:
                 return settings.resourceDensity;
+
             default:
                 return 0f;
         }
@@ -261,10 +289,11 @@ public static class TreeChunkGenerator
         float canopyHeight,
         float rotationDegrees,
         Color trunkColor,
-        Color leafColor
+        Color leafColor,
+        System.Random random
     )
     {
-        AddTrunk(
+        Vector3 trunkTop = AddLeanTrunk(
             vertices,
             triangles,
             colors,
@@ -272,24 +301,100 @@ public static class TreeChunkGenerator
             trunkHeight,
             trunkRadius,
             rotationDegrees,
-            trunkColor
+            trunkColor,
+            random
         );
 
-        Vector3 canopyCenter = position + Vector3.up * trunkHeight;
+        int branchCount = random.Next(MinBranchCount, MaxBranchCount + 1);
+        List<Vector3> branchTips = new List<Vector3>();
 
-        AddCanopy(
-            vertices,
-            triangles,
-            colors,
-            canopyCenter,
-            canopyRadius,
-            canopyHeight,
-            rotationDegrees,
-            leafColor
-        );
+        for (int i = 0; i < branchCount; i++)
+        {
+            float angle = rotationDegrees +
+                          (360f / branchCount) * i +
+                          Mathf.Lerp(-30f, 30f, (float)random.NextDouble());
+
+            float branchLength = Mathf.Lerp(
+                canopyRadius * 0.38f,
+                canopyRadius * 0.75f,
+                (float)random.NextDouble()
+            );
+
+            Vector3 branchTip = AddBranch(
+                vertices,
+                triangles,
+                colors,
+                trunkTop,
+                angle,
+                branchLength,
+                trunkRadius * 0.65f,
+                BranchUpwardBias,
+                trunkColor
+            );
+
+            branchTips.Add(branchTip);
+        }
+
+        int leafClumpCount = random.Next(MinLeafClumps, MaxLeafClumps + 1);
+
+        for (int i = 0; i < leafClumpCount; i++)
+        {
+            Vector3 anchor = branchTips[random.Next(branchTips.Count)];
+
+            float angle = rotationDegrees +
+                          (360f / leafClumpCount) * i +
+                          Mathf.Lerp(-45f, 45f, (float)random.NextDouble());
+
+            float spread = Mathf.Lerp(
+                canopyRadius * 0.12f,
+                canopyRadius * 0.62f,
+                (float)random.NextDouble()
+            );
+
+            Quaternion rotation = Quaternion.Euler(0f, angle, 0f);
+
+            Vector3 offset = rotation * new Vector3(spread, 0f, 0f);
+
+            offset.y = Mathf.Lerp(
+                -canopyHeight * 0.25f,
+                canopyHeight * 0.12f,
+                (float)random.NextDouble()
+            );
+
+            Vector3 clumpCenter = anchor + offset;
+
+            float clumpRadius = Mathf.Lerp(
+                canopyRadius * 0.28f,
+                canopyRadius * 0.52f,
+                (float)random.NextDouble()
+            );
+
+            float clumpHeight = Mathf.Lerp(
+                canopyHeight * 0.35f,
+                canopyHeight * 0.75f,
+                (float)random.NextDouble()
+            );
+
+            Color clumpColor = leafColor * Mathf.Lerp(
+                0.88f,
+                1.08f,
+                (float)random.NextDouble()
+            );
+
+            AddLeafClump(
+                vertices,
+                triangles,
+                colors,
+                clumpCenter,
+                clumpRadius,
+                clumpHeight,
+                angle,
+                clumpColor
+            );
+        }
     }
 
-    private static void AddTrunk(
+    private static Vector3 AddLeanTrunk(
         List<Vector3> vertices,
         List<int> triangles,
         List<Color> colors,
@@ -297,25 +402,39 @@ public static class TreeChunkGenerator
         float height,
         float radius,
         float rotationDegrees,
-        Color color
+        Color color,
+        System.Random random
     )
     {
         int sides = 6;
         int startIndex = vertices.Count;
 
-        Quaternion rotation = Quaternion.Euler(0f, rotationDegrees, 0f);
+        float leanAngle = Mathf.Lerp(-35f, 35f, (float)random.NextDouble());
+        float leanAmount = height * TrunkLeanStrength;
+
+        Quaternion baseRotation = Quaternion.Euler(0f, rotationDegrees, 0f);
+        Quaternion leanRotation = Quaternion.Euler(0f, leanAngle, 0f);
+
+        Vector3 leanOffset = leanRotation * (baseRotation * new Vector3(leanAmount, 0f, 0f));
+        Vector3 topCenter = basePosition + Vector3.up * height + leanOffset;
 
         for (int i = 0; i < sides; i++)
         {
             float angle = ((float)i / sides) * Mathf.PI * 2f;
-            Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
-            dir = rotation * dir;
+
+            Vector3 dir = new Vector3(
+                Mathf.Cos(angle),
+                0f,
+                Mathf.Sin(angle)
+            );
+
+            dir = baseRotation * dir;
 
             vertices.Add(basePosition + dir * radius);
-            vertices.Add(basePosition + Vector3.up * height + dir * radius * 0.65f);
+            vertices.Add(topCenter + dir * radius * 0.55f);
 
-            colors.Add(color);
-            colors.Add(color);
+            colors.Add(color * 0.92f);
+            colors.Add(color * 1.05f);
         }
 
         for (int i = 0; i < sides; i++)
@@ -334,9 +453,55 @@ public static class TreeChunkGenerator
             triangles.Add(nextTop);
             triangles.Add(nextBottom);
         }
+
+        return topCenter;
     }
 
-    private static void AddCanopy(
+    private static Vector3 AddBranch(
+        List<Vector3> vertices,
+        List<int> triangles,
+        List<Color> colors,
+        Vector3 start,
+        float angleDegrees,
+        float length,
+        float radius,
+        float upwardBias,
+        Color color
+    )
+    {
+        int startIndex = vertices.Count;
+
+        Quaternion rotation = Quaternion.Euler(0f, angleDegrees, 0f);
+
+        Vector3 forward = rotation * Vector3.forward;
+        Vector3 right = rotation * Vector3.right;
+
+        Vector3 end = start +
+                      forward * length +
+                      Vector3.up * (length * upwardBias);
+
+        vertices.Add(start - right * radius);
+        vertices.Add(start + right * radius);
+        vertices.Add(end + right * radius * 0.35f);
+        vertices.Add(end - right * radius * 0.35f);
+
+        colors.Add(color * 0.88f);
+        colors.Add(color);
+        colors.Add(color * 1.08f);
+        colors.Add(color * 0.96f);
+
+        triangles.Add(startIndex);
+        triangles.Add(startIndex + 2);
+        triangles.Add(startIndex + 1);
+
+        triangles.Add(startIndex);
+        triangles.Add(startIndex + 3);
+        triangles.Add(startIndex + 2);
+
+        return end;
+    }
+
+    private static void AddLeafClump(
         List<Vector3> vertices,
         List<int> triangles,
         List<Color> colors,
@@ -347,13 +512,14 @@ public static class TreeChunkGenerator
         Color color
     )
     {
-        int segments = 12;
+        int segments = 10;
         Quaternion rotation = Quaternion.Euler(0f, rotationDegrees, 0f);
 
-        // top fan
+        float actualHeight = height * CrownFlatness;
+
         int topCenterIndex = vertices.Count;
-        vertices.Add(center + Vector3.up * height * 0.18f);
-        colors.Add(color);
+        vertices.Add(center + Vector3.up * actualHeight);
+        colors.Add(color * 1.05f);
 
         int topRingStart = vertices.Count;
 
@@ -361,14 +527,22 @@ public static class TreeChunkGenerator
         {
             float angle = ((float)i / segments) * Mathf.PI * 2f;
 
-            float irregularity = 0.84f + 0.18f * Mathf.Sin(angle * 3f + rotationDegrees * 0.03f);
+            float irregularity =
+                0.78f +
+                0.24f * Mathf.Sin(angle * 3f + rotationDegrees * 0.05f);
+
             float finalRadius = radius * irregularity;
 
-            Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            Vector3 dir = new Vector3(
+                Mathf.Cos(angle),
+                0f,
+                Mathf.Sin(angle)
+            );
+
             dir = rotation * dir;
 
             vertices.Add(center + dir * finalRadius);
-            colors.Add(color);
+            colors.Add(color * (0.9f + 0.12f * Mathf.Sin(angle * 2f)));
         }
 
         for (int i = 0; i < segments; i++)
@@ -381,11 +555,10 @@ public static class TreeChunkGenerator
             triangles.Add(next);
         }
 
-        // lower darker fan
-        Color underside = color * 0.78f;
+        Color underside = color * 0.72f;
 
         int bottomCenterIndex = vertices.Count;
-        vertices.Add(center - Vector3.up * height * 0.18f);
+        vertices.Add(center - Vector3.up * actualHeight * 0.45f);
         colors.Add(underside);
 
         int bottomRingStart = vertices.Count;
@@ -394,13 +567,21 @@ public static class TreeChunkGenerator
         {
             float angle = ((float)i / segments) * Mathf.PI * 2f;
 
-            float irregularity = 0.76f + 0.12f * Mathf.Sin(angle * 2f + 1.5f);
+            float irregularity =
+                0.72f +
+                0.16f * Mathf.Sin(angle * 2f + 1.7f);
+
             float finalRadius = radius * irregularity;
 
-            Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+            Vector3 dir = new Vector3(
+                Mathf.Cos(angle),
+                0f,
+                Mathf.Sin(angle)
+            );
+
             dir = rotation * dir;
 
-            vertices.Add(center + dir * finalRadius - Vector3.up * height * 0.28f);
+            vertices.Add(center + dir * finalRadius - Vector3.up * actualHeight * 0.3f);
             colors.Add(underside);
         }
 

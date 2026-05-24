@@ -138,6 +138,9 @@ public static class GrassChunkGenerator
             case TerrainZone.Resource:
                 return settings.resourceDensity;
 
+            case TerrainZone.Border:
+                return settings.borderDensity;
+
             default:
                 return 0f;
         }
