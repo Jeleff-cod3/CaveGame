@@ -18,6 +18,32 @@ public class WorldChunkRenderer : MonoBehaviour
     public int transitionDistance = 40;
     public int resourceRadius = 460;
 
+    [Header("Terrain Colors")]
+    public TerrainColorSettings terrainColorSettings = new TerrainColorSettings();
+
+    [Header("Ground Grass")]
+    public GroundGrassSettings groundGrassSettings = new GroundGrassSettings();
+    public Material groundGrassMaterial;
+
+    [Header("Grass")]
+    public GrassSettings grassSettings = new GrassSettings();
+    public Material grassMaterial;
+
+    [Header("Trees")]
+    public TreeSettings treeSettings = new TreeSettings();
+    public Material treeMaterial;
+    public Material treeShadowMaterial;
+
+    [Header("Rocks")]
+    public RockSettings rockSettings = new RockSettings();
+    public Material rockMaterial;
+    public Material rockShadowMaterial;
+
+    [Header("Extra Vegetation")]
+    public VegetationSettings vegetationSettings = new VegetationSettings();
+    public Material vegetationMaterial;
+    public Material vegetationShadowMaterial;
+
     [Header("Terrain Settings")]
     public int seed = 12345;
     public float arenaHeightMultiplier = 2f;
@@ -37,6 +63,12 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void Start()
     {
+        if (Mathf.Abs(transform.lossyScale.y) < 0.001f)
+        {
+            Debug.LogError("WorldChunkRenderer parent has Y scale near 0. This will flatten all chunks.");
+        }
+
+        Debug.Log($"WorldChunkRenderer scale: {transform.lossyScale}");
         GenerateWorld();
         DebugWorldHeightRange();
         PlacePlayerAtArenaCenter();
@@ -54,6 +86,25 @@ public class WorldChunkRenderer : MonoBehaviour
             currentPlayerChunk = newPlayerChunk;
             UpdateVisibleChunks();
         }
+        UpdateGroundGrassMaterial();
+    }
+
+    private void UpdateGroundGrassMaterial()
+    {
+        if (groundGrassMaterial == null || player == null || groundGrassSettings == null)
+        {
+            return;
+        }
+
+        groundGrassMaterial.SetVector("_PlayerPosition", player.position);
+
+        groundGrassMaterial.SetFloat("_WindStrength", groundGrassSettings.windStrength);
+        groundGrassMaterial.SetFloat("_WindSpeed", groundGrassSettings.windSpeed);
+        groundGrassMaterial.SetFloat("_WindScale", groundGrassSettings.windScale);
+
+        groundGrassMaterial.SetFloat("_PushRadius", groundGrassSettings.playerPushRadius);
+        groundGrassMaterial.SetFloat("_PushStrength", groundGrassSettings.playerPushStrength);
+        groundGrassMaterial.SetFloat("_FlattenStrength", groundGrassSettings.playerFlattenStrength);
     }
 
     private void DebugWorldHeightRange()
@@ -180,8 +231,10 @@ public class WorldChunkRenderer : MonoBehaviour
         int startZ = chunkCoord.y * chunkSize;
 
         GameObject chunkObject = new GameObject($"Chunk {chunkCoord.x}, {chunkCoord.y}");
-        chunkObject.transform.parent = transform;
-        chunkObject.transform.position = new Vector3(startX, 0f, startZ);
+        chunkObject.transform.SetParent(transform, false);
+        chunkObject.transform.localPosition = new Vector3(startX, 0f, startZ);
+        chunkObject.transform.localRotation = Quaternion.identity;
+        chunkObject.transform.localScale = Vector3.one;
 
         MeshFilter meshFilter = chunkObject.AddComponent<MeshFilter>();
         MeshRenderer meshRenderer = chunkObject.AddComponent<MeshRenderer>();
@@ -194,13 +247,271 @@ public class WorldChunkRenderer : MonoBehaviour
             startX,
             startZ,
             chunkSize,
-            uvScale
+            uvScale,
+            seed,
+            terrainColorSettings
         );
 
         meshFilter.sharedMesh = mesh;
         meshCollider.sharedMesh = mesh;
 
+        CreateGroundGrassForChunk(chunkObject, startX, startZ);
+        CreateGrassForChunk(chunkObject, startX, startZ);
+        CreateTreesForChunk(chunkObject, startX, startZ);
+        CreateVegetationForChunk(chunkObject, startX, startZ);
+        CreateRocksForChunk(chunkObject, startX, startZ);
+
         activeChunks.Add(chunkCoord, chunkObject);
+    }
+
+    private void CreateGroundGrassForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        if (groundGrassSettings == null || !groundGrassSettings.enabled)
+        {
+            return;
+        }
+
+        if (groundGrassMaterial == null)
+        {
+            Debug.LogWarning("Ground grass material is missing.");
+            return;
+        }
+
+        Mesh groundGrassMesh = GroundGrassChunkGenerator.GenerateGroundGrassMesh(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            groundGrassSettings
+        );
+
+        if (groundGrassMesh == null || groundGrassMesh.vertexCount == 0)
+        {
+            return;
+        }
+
+        GameObject groundGrassObject = new GameObject("Ground Grass");
+        groundGrassObject.transform.SetParent(chunkObject.transform, false);
+        groundGrassObject.transform.localPosition = Vector3.zero;
+        groundGrassObject.transform.localRotation = Quaternion.identity;
+        groundGrassObject.transform.localScale = Vector3.one;
+
+        MeshFilter meshFilter = groundGrassObject.AddComponent<MeshFilter>();
+        MeshRenderer meshRenderer = groundGrassObject.AddComponent<MeshRenderer>();
+
+        meshFilter.sharedMesh = groundGrassMesh;
+        meshRenderer.sharedMaterial = groundGrassMaterial;
+    }
+
+    private void CreateRocksForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        if (rockSettings == null || !rockSettings.enabled)
+        {
+            return;
+        }
+
+        if (rockMaterial == null)
+        {
+            Debug.LogWarning("Rock material is missing.");
+            return;
+        }
+
+        RockChunkMeshes meshes = RockChunkGenerator.GenerateRockMeshes(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            rockSettings
+        );
+
+        if (meshes.shadowMesh != null && meshes.shadowMesh.vertexCount > 0)
+        {
+            GameObject shadowObject = new GameObject("Rock Shadows");
+            shadowObject.transform.SetParent(chunkObject.transform, false);
+            shadowObject.transform.localPosition = Vector3.zero;
+            shadowObject.transform.localRotation = Quaternion.identity;
+            shadowObject.transform.localScale = Vector3.one;
+
+            MeshFilter shadowFilter = shadowObject.AddComponent<MeshFilter>();
+            MeshRenderer shadowRenderer = shadowObject.AddComponent<MeshRenderer>();
+
+            shadowFilter.sharedMesh = meshes.shadowMesh;
+
+            if (rockShadowMaterial != null)
+            {
+                shadowRenderer.sharedMaterial = rockShadowMaterial;
+            }
+        }
+
+        if (meshes.rockMesh != null && meshes.rockMesh.vertexCount > 0)
+        {
+            GameObject rockObject = new GameObject("Rocks");
+            rockObject.transform.SetParent(chunkObject.transform, false);
+            rockObject.transform.localPosition = Vector3.zero;
+            rockObject.transform.localRotation = Quaternion.identity;
+            rockObject.transform.localScale = Vector3.one;
+
+            MeshFilter rockFilter = rockObject.AddComponent<MeshFilter>();
+            MeshRenderer rockRenderer = rockObject.AddComponent<MeshRenderer>();
+
+            rockFilter.sharedMesh = meshes.rockMesh;
+            rockRenderer.sharedMaterial = rockMaterial;
+        }
+    }
+
+    private void CreateVegetationForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        if (vegetationSettings == null || !vegetationSettings.enabled)
+        {
+            return;
+        }
+
+        if (vegetationMaterial == null)
+        {
+            Debug.LogWarning("Vegetation material is missing.");
+            return;
+        }
+
+        VegetationChunkMeshes meshes = VegetationChunkGenerator.GenerateVegetationMeshes(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            vegetationSettings
+        );
+
+        if (meshes.shadowMesh != null && meshes.shadowMesh.vertexCount > 0)
+        {
+            GameObject shadowObject = new GameObject("Vegetation Shadows");
+            shadowObject.transform.SetParent(chunkObject.transform, false);
+            shadowObject.transform.localPosition = Vector3.zero;
+            shadowObject.transform.localRotation = Quaternion.identity;
+            shadowObject.transform.localScale = Vector3.one;
+
+            MeshFilter shadowFilter = shadowObject.AddComponent<MeshFilter>();
+            MeshRenderer shadowRenderer = shadowObject.AddComponent<MeshRenderer>();
+
+            shadowFilter.sharedMesh = meshes.shadowMesh;
+
+            if (vegetationShadowMaterial != null)
+            {
+                shadowRenderer.sharedMaterial = vegetationShadowMaterial;
+            }
+        }
+
+        if (meshes.vegetationMesh != null && meshes.vegetationMesh.vertexCount > 0)
+        {
+            GameObject vegetationObject = new GameObject("Extra Vegetation");
+            vegetationObject.transform.SetParent(chunkObject.transform, false);
+            vegetationObject.transform.localPosition = Vector3.zero;
+            vegetationObject.transform.localRotation = Quaternion.identity;
+            vegetationObject.transform.localScale = Vector3.one;
+
+            MeshFilter vegetationFilter = vegetationObject.AddComponent<MeshFilter>();
+            MeshRenderer vegetationRenderer = vegetationObject.AddComponent<MeshRenderer>();
+
+            vegetationFilter.sharedMesh = meshes.vegetationMesh;
+            vegetationRenderer.sharedMaterial = vegetationMaterial;
+        }
+    }
+
+    private void CreateTreesForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        if (treeSettings == null || !treeSettings.enabled)
+        {
+            return;
+        }
+
+        if (treeMaterial == null)
+        {
+            Debug.LogWarning("Tree material is missing.");
+            return;
+        }
+
+        TreeChunkMeshes meshes = TreeChunkGenerator.GenerateTreeMeshes(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            treeSettings
+        );
+
+        if (meshes.shadowMesh != null && meshes.shadowMesh.vertexCount > 0)
+        {
+            GameObject shadowObject = new GameObject("Tree Shadows");
+            shadowObject.transform.SetParent(chunkObject.transform, false);
+            shadowObject.transform.localPosition = Vector3.zero;
+            shadowObject.transform.localRotation = Quaternion.identity;
+            shadowObject.transform.localScale = Vector3.one;
+
+            MeshFilter shadowFilter = shadowObject.AddComponent<MeshFilter>();
+            MeshRenderer shadowRenderer = shadowObject.AddComponent<MeshRenderer>();
+
+            shadowFilter.sharedMesh = meshes.shadowMesh;
+
+            if (treeShadowMaterial != null)
+            {
+                shadowRenderer.sharedMaterial = treeShadowMaterial;
+            }
+        }
+
+        if (meshes.treeMesh != null && meshes.treeMesh.vertexCount > 0)
+        {
+            GameObject treeObject = new GameObject("Trees");
+            treeObject.transform.SetParent(chunkObject.transform, false);
+            treeObject.transform.localPosition = Vector3.zero;
+            treeObject.transform.localRotation = Quaternion.identity;
+            treeObject.transform.localScale = Vector3.one;
+
+            MeshFilter treeFilter = treeObject.AddComponent<MeshFilter>();
+            MeshRenderer treeRenderer = treeObject.AddComponent<MeshRenderer>();
+
+            treeFilter.sharedMesh = meshes.treeMesh;
+            treeRenderer.sharedMaterial = treeMaterial;
+        }
+    }
+    private void CreateGrassForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        if (grassSettings == null || !grassSettings.enabled)
+        {
+            return;
+        }
+
+        if (grassMaterial == null)
+        {
+            Debug.LogWarning("Grass material is missing.");
+            return;
+        }
+
+        Mesh grassMesh = GrassChunkGenerator.GenerateGrassMesh(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            grassSettings
+        );
+
+        if (grassMesh.vertexCount == 0)
+        {
+            return;
+        }
+
+        GameObject grassObject = new GameObject("Grass");
+        grassObject.transform.SetParent(chunkObject.transform, false);
+        grassObject.transform.localPosition = Vector3.zero;
+        grassObject.transform.localRotation = Quaternion.identity;
+        grassObject.transform.localScale = Vector3.one;
+
+        MeshFilter grassMeshFilter = grassObject.AddComponent<MeshFilter>();
+        MeshRenderer grassMeshRenderer = grassObject.AddComponent<MeshRenderer>();
+
+        grassMeshFilter.sharedMesh = grassMesh;
+        grassMeshRenderer.sharedMaterial = grassMaterial;
     }
 
     private void SpawnCave()

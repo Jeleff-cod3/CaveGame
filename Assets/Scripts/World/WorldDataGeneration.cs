@@ -47,12 +47,6 @@ public static class WorldDataGenerator
                     distanceFromCenter
                 );
 
-                float resourceMask = 1f - Mathf.SmoothStep(
-                    resourceRadius - 30,
-                    resourceRadius,
-                    distanceFromCenter
-                );
-
                 float baseNoise = GetFractalNoise(
                     x,
                     z,
@@ -85,15 +79,24 @@ public static class WorldDataGenerator
                 float finalHeight = Mathf.Lerp(resourceHeight, arenaHeight, arenaMask);
 
                 // Fade the outside border down.
-                finalHeight *= resourceMask;
-
-                // Temporary debug boost so relief is clearly visible.
-                finalHeight *= 2.5f;
+                //finalHeight *= resourceMask;
 
                 finalHeight = Mathf.Clamp(finalHeight, 0f, 80f);
                 worldData.heights[x, z] = finalHeight;
 
-                if (distanceFromCenter <= arenaRadius)
+                int borderWidth = 12;
+
+                bool isOuterMapBorder =
+                    x < borderWidth ||
+                    z < borderWidth ||
+                    x > mapSize - borderWidth ||
+                    z > mapSize - borderWidth;
+
+                if (isOuterMapBorder)
+                {
+                    worldData.zones[x, z] = TerrainZone.Border;
+                }
+                else if (distanceFromCenter <= arenaRadius)
                 {
                     worldData.zones[x, z] = TerrainZone.Arena;
                 }
@@ -101,18 +104,15 @@ public static class WorldDataGenerator
                 {
                     worldData.zones[x, z] = TerrainZone.Transition;
                 }
-                else if (distanceFromCenter <= resourceRadius)
-                {
-                    worldData.zones[x, z] = TerrainZone.Resource;
-                }
                 else
                 {
-                    worldData.zones[x, z] = TerrainZone.Border;
+                    worldData.zones[x, z] = TerrainZone.Resource;
                 }
             }
         }
 
-        ShapeCaveArea(worldData);
+        //ShapeCaveArea(worldData);
+        ClampAllHeights(worldData);
 
         return worldData;
     }
@@ -184,6 +184,17 @@ public static class WorldDataGenerator
 
         float normalized = (noiseHeight + maxPossibleHeight) / (2f * maxPossibleHeight);
         return Mathf.Clamp01(normalized);
+    }
+
+    private static void ClampAllHeights(WorldData worldData)
+    {
+        for (int z = 0; z <= worldData.size; z++)
+        {
+            for (int x = 0; x <= worldData.size; x++)
+            {
+                worldData.heights[x, z] = Mathf.Clamp(worldData.heights[x, z], 0f, 80f);
+            }
+        }
     }
 
     private static void ShapeCaveArea(WorldData worldData)

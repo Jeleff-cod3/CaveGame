@@ -385,7 +385,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WorldChunkRenderer
   player: {fileID: 967818619}
-  terrainMaterial: {fileID: 2100000, guid: 09da3d86f96bc524eb6088540e18b191, type: 2}
+  terrainMaterial: {fileID: 2100000, guid: 5008a87914539b7419234f13c6053b4a, type: 2}
   cavePrefab: {fileID: 0}
   mapSize: 1000
   chunkSize: 50
@@ -393,12 +393,75 @@ MonoBehaviour:
   arenaRadius: 120
   transitionDistance: 40
   resourceRadius: 460
-  seed: 12345
+  terrainColorSettings:
+    largePatchScale: 100
+    mediumPatchScale: 35
+    smallPatchScale: 15
+    mediumInfluence: 0.58
+    smallInfluence: 0.37
+    lightSand: {r: 0.8867924, g: 0.6628755, b: 0.20914902, a: 1}
+    dryYellow: {r: 0.8867924, g: 0.6326407, b: 0.14779864, a: 1}
+    orangeDirt: {r: 0.66, g: 0.42, b: 0.2, a: 1}
+    paleGrass: {r: 0.55, g: 0.58, b: 0.25, a: 1}
+    arenaPaleness: 1
+    resourceGreenness: 0.78
+    heightDarkening: 0.95
+  grassSettings:
+    enabled: 1
+    spacing: 2
+    arenaDensity: 0.35
+    transitionDensity: 0.46
+    resourceDensity: 0.64
+    minHeight: 0.45
+    maxHeight: 0.95
+    minWidth: 0.12
+    maxWidth: 0.28
+    largePatchScale: 90
+    smallPatchScale: 24
+    patchContrast: 0.65
+    dryGrass: {r: 0.72, g: 0.67, b: 0.28, a: 1}
+    oliveGrass: {r: 0.39, g: 0.55, b: 0.22, a: 1}
+    greenGrass: {r: 0.28, g: 0.62, b: 0.24, a: 1}
+    yOffset: 0.03
+    maxSlopeAngle: 28
+  grassMaterial: {fileID: 2100000, guid: 09da3d86f96bc524eb6088540e18b191, type: 2}
+  treeSettings:
+    enabled: 1
+    spacing: 5
+    arenaDensity: 0.03
+    transitionDensity: 0.01
+    resourceDensity: 0.02
+    largePatchScale: 110
+    smallPatchScale: 32
+    patchStrength: 1.15
+    yOffset: 0.03
+    maxSlopeAngle: 24
+    minTrunkHeight: 2
+    maxTrunkHeight: 5
+    minTrunkRadius: 0.12
+    maxTrunkRadius: 0.22
+    minCanopyRadius: 1.6
+    maxCanopyRadius: 3.2
+    minCanopyHeight: 0.45
+    maxCanopyHeight: 0.85
+    trunkColor: {r: 0.28, g: 0.16, b: 0.08, a: 1}
+    dryLeafColor: {r: 0.52, g: 0.56, b: 0.22, a: 1}
+    oliveLeafColor: {r: 0.39, g: 0.49, b: 0.2, a: 1}
+    greenLeafColor: {r: 0.27, g: 0.42, b: 0.18, a: 1}
+    generateShadows: 1
+    shadowYOffset: 0.025
+    shadowOffsetX: 0.18
+    shadowOffsetZ: -0.12
+    shadowRadiusXMultiplier: 0.95
+    shadowRadiusZMultiplier: 0.58
+  treeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
+  treeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
+  seed: 3
   arenaHeightMultiplier: 2
-  resourceHeightMultiplier: 25
-  noiseScale: 120
+  resourceHeightMultiplier: 10
+  noiseScale: 130
   octaves: 3
-  persistence: 0.45
+  persistence: 0.349
   lacunarity: 2
   uvScale: 30
 --- !u!4 &1486753751

@@ -395,10 +395,10 @@ MonoBehaviour:
   resourceRadius: 460
   seed: 12345
   arenaHeightMultiplier: 2
-  resourceHeightMultiplier: 25
-  noiseScale: 120
+  resourceHeightMultiplier: 10
+  noiseScale: 130
   octaves: 3
-  persistence: 0.45
+  persistence: 0.349
   lacunarity: 2
   uvScale: 30
 --- !u!4 &1486753751
