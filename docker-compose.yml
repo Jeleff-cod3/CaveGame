@@ -1,0 +1,13 @@
+services:
+  seamless-streaming:
+    build: .
+    container_name: seamless-streaming
+    ports:
+      - "8000:7860"
+    gpus: all
+    shm_size: "8gb"
+    volumes:
+      - seamless_cache:/models
+
+volumes:
+  seamless_cache:
