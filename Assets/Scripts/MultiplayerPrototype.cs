@@ -16,6 +16,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float ForcedStateSendInterval = 0.5f;
     private const float MinPositionDeltaSqr = 0.0004f;
     private const float MinRotationDelta = 1.5f;
+    private const float LobbyPingInterval = 2f;
     private const float GamePingInterval = 1f;
     private const float HudRefreshInterval = 0.25f;
     private const float SpawnHeightOffset = 0.75f;
@@ -56,6 +57,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private Vector3 lastSentPosition;
     private Vector3 lastSentEulerAngles;
     private float nextGamePingTime;
+    private float nextLobbyPingTime;
     private float nextHudRefreshTime;
     private float lastGameRttMs = -1f;
     private float lastRemoteStateReceiveTime = -1f;
@@ -114,6 +116,15 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private bool isShuttingDown;
     private float lastGamePingSendTime = -1f;
     private float lastGamePongReceiveTime = -1f;
+    private float lastLobbyPingSendTime = -1f;
+    private float lastLobbyPongReceiveTime = -1f;
+    private float lastLobbySocketCloseTime = -1f;
+    private float lastGameSocketCloseTime = -1f;
+    private float lastGameSocketCloseGapMs = -1f;
+    private string lastLobbyEnvelopeType = "none";
+    private string lastGameEnvelopeType = "none";
+    private float lastLobbyEnvelopeTime = -1f;
+    private float lastGameEnvelopeTime = -1f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateRuntimeBootstrap()
@@ -146,6 +157,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
         {
             DumpMultiplayerDebugSnapshot();
+        }
+
+        if (!gameStarted && lobbySocket != null && lobbySocket.IsOpen && Time.unscaledTime >= nextLobbyPingTime)
+        {
+            nextLobbyPingTime = Time.unscaledTime + LobbyPingInterval;
+            lastLobbyPingSendTime = Time.unscaledTime;
+            lobbySocket.SendJson(JsonUtility.ToJson(new PingDto { clientTime = Time.realtimeSinceStartupAsDouble }));
         }
 
         if (!gameStarted || gameSocket == null || !gameSocket.IsOpen)
@@ -328,11 +346,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         {
             SetText(lobbyStatusText, "Connected to lobby socket.");
             NetLog("Lobby socket opened.");
+            nextLobbyPingTime = Time.unscaledTime;
         };
         lobbySocket.ErrorReceived += error =>
         {
             SetText(lobbyStatusText, "Lobby socket error: " + error);
             NetLog("Lobby socket error: " + error, true);
+            LogSocketTrace("Lobby socket trace on error", lobbySocket, true);
         };
         lobbySocket.Closed += closeCode =>
         {
@@ -342,8 +362,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             }
 
             lastLobbySocketCloseCode = closeCode;
+            lastLobbySocketCloseTime = Time.unscaledTime;
             SetText(lobbyStatusText, "Lobby socket closed (" + closeCode + ").");
             NetLog("Lobby socket closed: " + closeCode, IsSocketCloseWarning(closeCode));
+            LogSocketTrace("Lobby socket trace on close", lobbySocket, true);
             QueueLobbyReconnectIfNeeded();
         };
         lobbySocket.MessageReceived += HandleLobbySocketMessage;
@@ -383,6 +405,12 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lobbyMessagesReceived++;
         SocketTypeEnvelopeDto envelope = JsonUtility.FromJson<SocketTypeEnvelopeDto>(json);
         NetLog($"Lobby message #{lobbyMessagesReceived}: {envelope.type}");
+        lastLobbyEnvelopeType = envelope != null && !string.IsNullOrWhiteSpace(envelope.type) ? envelope.type : "unknown";
+        lastLobbyEnvelopeTime = Time.unscaledTime;
+        if (string.Equals(lastLobbyEnvelopeType, "pong", StringComparison.OrdinalIgnoreCase))
+        {
+            lastLobbyPongReceiveTime = Time.unscaledTime;
+        }
         if (logSocketPayloads)
         {
             NetLog($"Lobby payload: {json}");
@@ -636,6 +664,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
             SetText(gameStatusText, "Game socket error: " + error);
             NetLog("Game socket error: " + error, true);
+            LogSocketTrace("Game socket trace on error", gameSocket, true);
         };
         gameSocket.Closed += closeCode =>
         {
@@ -644,9 +673,17 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 return;
             }
 
+            float now = Time.unscaledTime;
+            lastGameSocketCloseGapMs = lastGameSocketCloseTime >= 0f ? (now - lastGameSocketCloseTime) * 1000f : -1f;
+            lastGameSocketCloseTime = now;
             lastGameSocketCloseCode = closeCode;
             SetText(gameStatusText, "Game socket closed (" + closeCode + ").");
             NetLog("Game socket closed: " + closeCode, IsSocketCloseWarning(closeCode));
+            if (lastGameSocketCloseGapMs >= 0f)
+            {
+                NetLog($"Game socket close cadence: {lastGameSocketCloseGapMs:0}ms since previous close.", true);
+            }
+            LogSocketTrace("Game socket trace on close", gameSocket, true);
             QueueGameReconnectIfNeeded();
         };
         gameSocket.MessageReceived += HandleGameSocketMessage;
@@ -666,7 +703,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private IEnumerator ReconnectGameSocketAfterDelay()
     {
-        const float reconnectDelay = 0.75f;
+        const float reconnectDelay = 0.15f;
         yield return new WaitForSecondsRealtime(reconnectDelay);
         gameReconnectQueued = false;
 
@@ -686,6 +723,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         gameMessagesReceived++;
         SocketTypeEnvelopeDto envelope = JsonUtility.FromJson<SocketTypeEnvelopeDto>(json);
         NetLog($"Game message #{gameMessagesReceived}: {envelope.type}");
+        lastGameEnvelopeType = envelope != null && !string.IsNullOrWhiteSpace(envelope.type) ? envelope.type : "unknown";
+        lastGameEnvelopeTime = Time.unscaledTime;
         if (logSocketPayloads)
         {
             NetLog($"Game payload: {json}");
@@ -893,6 +932,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lastSentPosition = Vector3.zero;
         lastSentEulerAngles = Vector3.zero;
         nextGamePingTime = 0f;
+        nextLobbyPingTime = 0f;
         nextHudRefreshTime = 0f;
         lastGameRttMs = -1f;
         lastRemoteStateReceiveTime = -1f;
@@ -906,6 +946,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         remoteStatesSpawned = 0;
         lastGamePingSendTime = -1f;
         lastGamePongReceiveTime = -1f;
+        lastLobbyPingSendTime = -1f;
+        lastLobbyPongReceiveTime = -1f;
+        lastGameSocketCloseTime = -1f;
+        lastGameSocketCloseGapMs = -1f;
+        lastGameEnvelopeType = "none";
+        lastGameEnvelopeTime = -1f;
+        lastLobbyEnvelopeType = "none";
+        lastLobbyEnvelopeTime = -1f;
     }
 
     private void DumpMultiplayerDebugSnapshot()
@@ -928,6 +976,19 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         sb.Append(", lastGameClose=").Append(lastGameSocketCloseCode);
         sb.Append(", lastPingAgoMs=").Append(lastGamePingSendTime >= 0f ? ((Time.unscaledTime - lastGamePingSendTime) * 1000f).ToString("0") : "n/a");
         sb.Append(", lastPongAgoMs=").Append(lastGamePongReceiveTime >= 0f ? ((Time.unscaledTime - lastGamePongReceiveTime) * 1000f).ToString("0") : "n/a");
+        sb.Append(", lobbyPingAgoMs=").Append(lastLobbyPingSendTime >= 0f ? ((Time.unscaledTime - lastLobbyPingSendTime) * 1000f).ToString("0") : "n/a");
+        sb.Append(", lobbyPongAgoMs=").Append(lastLobbyPongReceiveTime >= 0f ? ((Time.unscaledTime - lastLobbyPongReceiveTime) * 1000f).ToString("0") : "n/a");
+        sb.Append(", lastLobbyMsg=").Append(lastLobbyEnvelopeType).Append("@").Append(FormatAgo(lastLobbyEnvelopeTime));
+        sb.Append(", lastGameMsg=").Append(lastGameEnvelopeType).Append("@").Append(FormatAgo(lastGameEnvelopeTime));
+        sb.Append(", lastGameCloseGapMs=").Append(lastGameSocketCloseGapMs >= 0f ? lastGameSocketCloseGapMs.ToString("0") : "n/a");
+        if (lobbySocket != null)
+        {
+            sb.Append(", lobbySocket={").Append(lobbySocket.GetDebugSnapshot()).Append("}");
+        }
+        if (gameSocket != null)
+        {
+            sb.Append(", gameSocket={").Append(gameSocket.GetDebugSnapshot()).Append("}");
+        }
         Debug.Log(sb.ToString());
     }
 
@@ -978,6 +1039,27 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         {
             Debug.Log(formatted);
         }
+    }
+
+    private void LogSocketTrace(string prefix, CaveGameSocketClient socket, bool warning)
+    {
+        if (socket == null)
+        {
+            NetLog(prefix + ": socket=null", warning);
+            return;
+        }
+
+        NetLog(prefix + ": " + socket.GetDebugSnapshot(), warning);
+    }
+
+    private static string FormatAgo(float timestamp)
+    {
+        if (timestamp < 0f)
+        {
+            return "n/a";
+        }
+
+        return $"{Mathf.Max(0f, (Time.unscaledTime - timestamp) * 1000f):0}ms";
     }
 
     private void BuildUi()

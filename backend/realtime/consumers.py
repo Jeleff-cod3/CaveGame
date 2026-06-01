@@ -84,58 +84,74 @@ def get_member_details(lobby_id: int, user_id: int) -> dict | None:
 
 class LobbyConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
-        self.room_group_name = f"lobby_{self.lobby_id}"
-        self.user = self.scope["user"]
+        try:
+            self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
+            self.room_group_name = f"lobby_{self.lobby_id}"
+            self.user = self.scope["user"]
 
-        if not self.user.is_authenticated:
-            await self.close()
-            return
+            if not self.user.is_authenticated:
+                await self.close()
+                return
 
-        self.member = await get_member_details(self.lobby_id, self.user.id)
-        if self.member is None:
-            await self.close()
-            return
+            self.member = await get_member_details(self.lobby_id, self.user.id)
+            if self.member is None:
+                await self.close()
+                return
 
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-        await self.accept()
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+            await self.accept()
 
-        snapshot = await get_lobby_snapshot(self.lobby_id)
-        if snapshot is not None:
-            await self.send_json(snapshot)
+            snapshot = await get_lobby_snapshot(self.lobby_id)
+            if snapshot is not None:
+                await self.send_json(snapshot)
 
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "broadcast_event",
-                "payload": {
-                    "type": PLAYER_JOINED,
-                    "lobbyId": self.lobby_id,
-                    "playerId": self.member["playerId"],
-                    "userId": self.user.id,
-                    "slot": self.member["slot"],
-                },
-            },
-        )
-
-    async def disconnect(self, close_code):
-        if not hasattr(self, "room_group_name"):
-            return
-
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
-
-        if hasattr(self, "member"):
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     "type": "broadcast_event",
                     "payload": {
-                        "type": PLAYER_LEFT,
+                        "type": PLAYER_JOINED,
                         "lobbyId": self.lobby_id,
                         "playerId": self.member["playerId"],
                         "userId": self.user.id,
+                        "slot": self.member["slot"],
                     },
                 },
+            )
+        except Exception:
+            logger.exception(
+                "LobbyConsumer.connect failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
+            await self.close()
+
+    async def disconnect(self, close_code):
+        if not hasattr(self, "room_group_name"):
+            return
+
+        try:
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+            if hasattr(self, "member"):
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "broadcast_event",
+                        "payload": {
+                            "type": PLAYER_LEFT,
+                            "lobbyId": self.lobby_id,
+                            "playerId": self.member["playerId"],
+                            "userId": self.user.id,
+                        },
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "LobbyConsumer.disconnect failed (lobby=%s user=%s close_code=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                close_code,
             )
 
     async def receive(self, text_data=None, bytes_data=None):
@@ -147,23 +163,48 @@ class LobbyConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             return
 
-        message_type = data.get("type")
-        if message_type == PING:
-            await self.send_json(
-                {
-                    "type": PONG,
-                    "clientTime": data.get("clientTime"),
-                    "serverTime": time(),
-                }
+        try:
+            message_type = data.get("type")
+            if message_type == PING:
+                await self.send_json(
+                    {
+                        "type": PONG,
+                        "clientTime": data.get("clientTime"),
+                        "serverTime": time(),
+                    }
+                )
+            elif message_type == HEARTBEAT:
+                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+        except Exception:
+            logger.exception(
+                "LobbyConsumer.receive failed (lobby=%s user=%s type=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("type"),
             )
-        elif message_type == HEARTBEAT:
-            await self.send_json({"type": HEARTBEAT, "serverTime": time()})
 
     async def broadcast_event(self, event):
-        await self.send_json(event["payload"])
+        try:
+            await self.send_json(event["payload"])
+        except Exception:
+            logger.exception(
+                "LobbyConsumer.broadcast_event failed (lobby=%s user=%s event_type=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                event.get("payload", {}).get("type"),
+            )
 
     async def send_json(self, payload: dict):
-        await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
+        try:
+            await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
+        except Exception:
+            logger.exception(
+                "LobbyConsumer.send_json failed (lobby=%s user=%s payload_type=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                payload.get("type") if isinstance(payload, dict) else None,
+            )
+            raise
 
 
 class GameConsumer(AsyncWebsocketConsumer):
@@ -325,4 +366,13 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.send_json(event["payload"])
 
     async def send_json(self, payload: dict):
-        await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
+        try:
+            await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
+        except Exception:
+            logger.exception(
+                "GameConsumer.send_json failed (lobby=%s user=%s payload_type=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                payload.get("type") if isinstance(payload, dict) else None,
+            )
+            raise

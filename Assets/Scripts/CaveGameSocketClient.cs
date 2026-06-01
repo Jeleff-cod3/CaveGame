@@ -11,8 +11,24 @@ public sealed class CaveGameSocketClient
 
     private WebSocket socket;
     private readonly Queue<string> outboundQueue = new Queue<string>();
+    private readonly object queueLock = new object();
     private bool sendLoopRunning;
     private int connectionGeneration;
+    private int queuedMessagesTotal;
+    private int sentMessagesTotal;
+    private int receivedMessagesTotal;
+    private int sendErrorCount;
+    private int transportErrorCount;
+    private int maxObservedQueueDepth;
+    private string lastOutboundType = "none";
+    private string lastInboundType = "none";
+    private string lastError = "none";
+    private string lastCloseCode = "none";
+    private float lastOpenTime = -1f;
+    private float lastOutboundTime = -1f;
+    private float lastInboundTime = -1f;
+    private float lastErrorTime = -1f;
+    private float lastCloseTime = -1f;
 
     public event Action Opened;
     public event Action<string> MessageReceived;
@@ -20,6 +36,7 @@ public sealed class CaveGameSocketClient
     public event Action<string> ErrorReceived;
 
     public bool IsOpen => socket != null && socket.State == WebSocketState.Open;
+    public string CurrentState => socket == null ? "null" : socket.State.ToString();
 
     public async void Connect(string url)
     {
@@ -27,10 +44,33 @@ public sealed class CaveGameSocketClient
 
         int generation = ++connectionGeneration;
         socket = new WebSocket(url);
-        socket.OnOpen += () => Opened?.Invoke();
-        socket.OnError += error => ErrorReceived?.Invoke(error);
-        socket.OnClose += closeCode => Closed?.Invoke(closeCode.ToString());
-        socket.OnMessage += bytes => MessageReceived?.Invoke(Encoding.UTF8.GetString(bytes));
+        socket.OnOpen += () =>
+        {
+            lastOpenTime = Time.realtimeSinceStartup;
+            Opened?.Invoke();
+        };
+        socket.OnError += error =>
+        {
+            transportErrorCount++;
+            lastError = error ?? "unknown";
+            lastErrorTime = Time.realtimeSinceStartup;
+            ErrorReceived?.Invoke(error);
+        };
+        socket.OnClose += closeCode =>
+        {
+            int numericCloseCode = Convert.ToInt32(closeCode);
+            lastCloseCode = $"{numericCloseCode}({closeCode})";
+            lastCloseTime = Time.realtimeSinceStartup;
+            Closed?.Invoke(lastCloseCode);
+        };
+        socket.OnMessage += bytes =>
+        {
+            string payload = Encoding.UTF8.GetString(bytes);
+            receivedMessagesTotal++;
+            lastInboundType = ExtractTypeFromJson(payload);
+            lastInboundTime = Time.realtimeSinceStartup;
+            MessageReceived?.Invoke(payload);
+        };
 
         try
         {
@@ -50,9 +90,14 @@ public sealed class CaveGameSocketClient
             return;
         }
 
-        lock (outboundQueue)
+        lock (queueLock)
         {
             outboundQueue.Enqueue(json);
+            queuedMessagesTotal++;
+            if (outboundQueue.Count > maxObservedQueueDepth)
+            {
+                maxObservedQueueDepth = outboundQueue.Count;
+            }
         }
 
         StartSendLoopIfNeeded(connectionGeneration);
@@ -93,7 +138,7 @@ public sealed class CaveGameSocketClient
         finally
         {
             socket = null;
-            lock (outboundQueue)
+            lock (queueLock)
             {
                 outboundQueue.Clear();
             }
@@ -119,7 +164,7 @@ public sealed class CaveGameSocketClient
             while (generation == connectionGeneration && socket != null && socket.State == WebSocketState.Open)
             {
                 string nextMessage = null;
-                lock (outboundQueue)
+                lock (queueLock)
                 {
                     if (outboundQueue.Count > 0)
                     {
@@ -136,9 +181,15 @@ public sealed class CaveGameSocketClient
                 try
                 {
                     await socket.SendText(nextMessage);
+                    sentMessagesTotal++;
+                    lastOutboundType = ExtractTypeFromJson(nextMessage);
+                    lastOutboundTime = Time.realtimeSinceStartup;
                 }
                 catch (Exception exception)
                 {
+                    sendErrorCount++;
+                    lastError = exception.Message;
+                    lastErrorTime = Time.realtimeSinceStartup;
                     ErrorReceived?.Invoke(exception.Message);
                     break;
                 }
@@ -152,5 +203,62 @@ public sealed class CaveGameSocketClient
                 StartSendLoopIfNeeded(generation);
             }
         }
+    }
+
+    public string GetDebugSnapshot()
+    {
+        int queueDepth;
+        lock (queueLock)
+        {
+            queueDepth = outboundQueue.Count;
+        }
+
+        return $"state={CurrentState}, gen={connectionGeneration}, queue={queueDepth}, queueMax={maxObservedQueueDepth}, queued={queuedMessagesTotal}, sent={sentMessagesTotal}, recv={receivedMessagesTotal}, sendErr={sendErrorCount}, transportErr={transportErrorCount}, lastOut={lastOutboundType}@{FormatAgo(lastOutboundTime)}, lastIn={lastInboundType}@{FormatAgo(lastInboundTime)}, lastErr={lastError}@{FormatAgo(lastErrorTime)}, lastClose={lastCloseCode}@{FormatAgo(lastCloseTime)}, openAgo={FormatAgo(lastOpenTime)}";
+    }
+
+    private static string ExtractTypeFromJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return "empty";
+        }
+
+        const string token = "\"type\"";
+        int tokenIndex = json.IndexOf(token, StringComparison.Ordinal);
+        if (tokenIndex < 0)
+        {
+            return "no_type";
+        }
+
+        int colon = json.IndexOf(':', tokenIndex + token.Length);
+        if (colon < 0)
+        {
+            return "type_malformed";
+        }
+
+        int firstQuote = json.IndexOf('"', colon + 1);
+        if (firstQuote < 0)
+        {
+            return "type_non_string";
+        }
+
+        int secondQuote = json.IndexOf('"', firstQuote + 1);
+        if (secondQuote <= firstQuote)
+        {
+            return "type_malformed";
+        }
+
+        return json.Substring(firstQuote + 1, secondQuote - firstQuote - 1);
+    }
+
+    private static string FormatAgo(float timestamp)
+    {
+        if (timestamp < 0f)
+        {
+            return "n/a";
+        }
+
+        float deltaMs = (Time.realtimeSinceStartup - timestamp) * 1000f;
+        return $"{Mathf.Max(0f, deltaMs):0}ms";
     }
 }
