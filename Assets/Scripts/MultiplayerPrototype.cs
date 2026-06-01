@@ -1,7 +1,10 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
@@ -13,8 +16,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float ForcedStateSendInterval = 0.5f;
     private const float MinPositionDeltaSqr = 0.0004f;
     private const float MinRotationDelta = 1.5f;
-    private const float GamePingInterval = 2f;
+    private const float GamePingInterval = 1f;
     private const float HudRefreshInterval = 0.25f;
+    private const float SpawnHeightOffset = 0.75f;
+    private const float SpawnNavMeshProbeHeight = 40f;
+    private const float SpawnNavMeshSampleRadius = 80f;
+    private const float SpawnRaycastHeight = 200f;
+    private const float SpawnRaycastDistance = 600f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
@@ -31,6 +39,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private CaveGameApiClient api;
     private CaveGameSocketClient lobbySocket;
     private CaveGameSocketClient gameSocket;
+    private bool lobbyReconnectQueued;
+    private bool suppressLobbyReconnect;
+    private bool gameReconnectQueued;
+    private int currentGameLobbyId = -1;
 
     private string authToken;
     private UserDto currentUser;
@@ -81,6 +93,27 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private LocalCubeController localCube;
     private readonly Dictionary<string, RemoteCubeController> remoteCubes = new Dictionary<string, RemoteCubeController>();
     private readonly Dictionary<string, int> playerSlotsById = new Dictionary<string, int>();
+    private Vector3 runtimeSpawnAnchor = Vector3.zero;
+
+    [Header("Networking Debug")]
+    [SerializeField] private bool verboseNetworkingLogs = true;
+    [SerializeField] private bool logSocketPayloads = false;
+    [SerializeField] private bool logRemoteStateDecisions = true;
+
+    private string debugClientTag;
+    private int lobbyMessagesReceived;
+    private int gameMessagesReceived;
+    private int remoteStatesApplied;
+    private int remoteStatesDroppedAsLocal;
+    private int remoteStatesDroppedInvalid;
+    private int remoteStatesSpawned;
+    private int gameSocketReconnectAttempts;
+    private int lobbySocketReconnectAttempts;
+    private string lastLobbySocketCloseCode = "none";
+    private string lastGameSocketCloseCode = "none";
+    private bool isShuttingDown;
+    private float lastGamePingSendTime = -1f;
+    private float lastGamePongReceiveTime = -1f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateRuntimeBootstrap()
@@ -98,8 +131,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private void Awake()
     {
         Application.runInBackground = true;
+        debugClientTag = System.Guid.NewGuid().ToString("N").Substring(0, 6);
         api = new CaveGameApiClient(DefaultServerUrl, () => authToken);
         BuildUi();
+        NetLog("Bootstrap complete.");
         ShowLogin("Enter a display name, then authenticate with the backend.");
     }
 
@@ -108,15 +143,32 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lobbySocket?.Pump();
         gameSocket?.Pump();
 
-        if (!gameStarted || gameSocket == null || !gameSocket.IsOpen || localCube == null)
+        if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
+        {
+            DumpMultiplayerDebugSnapshot();
+        }
+
+        if (!gameStarted || gameSocket == null || !gameSocket.IsOpen)
         {
             return;
         }
 
-        if (Time.unscaledTime >= nextStateSendTime && ShouldSendStateNow(Time.unscaledTime))
+        if (localCube != null && Time.unscaledTime >= nextStateSendTime && ShouldSendStateNow(Time.unscaledTime))
         {
+            string outboundPlayerId = GetLocalPlayerId();
+            if (string.IsNullOrWhiteSpace(outboundPlayerId))
+            {
+                return;
+            }
+
             nextStateSendTime = Time.unscaledTime + StateSendInterval;
-            PlayerStateDto state = PlayerStateDto.FromTransform(localMember.playerId, ++stateSeq, localCube.transform, localCube.Velocity);
+            PlayerStateDto state = PlayerStateDto.FromTransform(
+                outboundPlayerId,
+                localMember != null ? localMember.userId : (currentUser != null ? currentUser.id : 0),
+                ++stateSeq,
+                localCube.transform,
+                localCube.Velocity
+            );
             gameSocket.SendJson(JsonUtility.ToJson(state));
             MarkStateSent(Time.unscaledTime);
         }
@@ -124,6 +176,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         if (Time.unscaledTime >= nextGamePingTime)
         {
             nextGamePingTime = Time.unscaledTime + GamePingInterval;
+            lastGamePingSendTime = Time.unscaledTime;
             gameSocket.SendJson(JsonUtility.ToJson(new PingDto { clientTime = Time.realtimeSinceStartupAsDouble }));
         }
 
@@ -136,6 +189,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void OnDestroy()
     {
+        isShuttingDown = true;
+        suppressLobbyReconnect = true;
         lobbySocket?.Close();
         gameSocket?.Close();
     }
@@ -252,6 +307,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void LeaveLobby()
     {
+        suppressLobbyReconnect = true;
         lobbySocket?.Close();
         lobbySocket = null;
         currentLobby = null;
@@ -262,18 +318,75 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void OpenLobbySocket()
     {
+        suppressLobbyReconnect = false;
+        lobbyReconnectQueued = false;
         lobbySocket?.Close();
         lobbySocket = new CaveGameSocketClient();
-        lobbySocket.Opened += () => SetText(lobbyStatusText, "Connected to lobby socket.");
-        lobbySocket.ErrorReceived += error => SetText(lobbyStatusText, "Lobby socket error: " + error);
-        lobbySocket.Closed += _ => SetText(lobbyStatusText, "Lobby socket closed.");
+        string url = api.BuildWebSocketUrl($"/ws/lobby/{currentLobby.id}/");
+        NetLog($"Opening lobby socket: {url}");
+        lobbySocket.Opened += () =>
+        {
+            SetText(lobbyStatusText, "Connected to lobby socket.");
+            NetLog("Lobby socket opened.");
+        };
+        lobbySocket.ErrorReceived += error =>
+        {
+            SetText(lobbyStatusText, "Lobby socket error: " + error);
+            NetLog("Lobby socket error: " + error, true);
+        };
+        lobbySocket.Closed += closeCode =>
+        {
+            if (isShuttingDown || this == null)
+            {
+                return;
+            }
+
+            lastLobbySocketCloseCode = closeCode;
+            SetText(lobbyStatusText, "Lobby socket closed (" + closeCode + ").");
+            NetLog("Lobby socket closed: " + closeCode, IsSocketCloseWarning(closeCode));
+            QueueLobbyReconnectIfNeeded();
+        };
         lobbySocket.MessageReceived += HandleLobbySocketMessage;
-        lobbySocket.Connect(api.BuildWebSocketUrl($"/ws/lobby/{currentLobby.id}/"));
+        lobbySocket.Connect(url);
+    }
+
+    private void QueueLobbyReconnectIfNeeded()
+    {
+        if (suppressLobbyReconnect || lobbyReconnectQueued || currentLobby == null || gameStarted)
+        {
+            return;
+        }
+
+        lobbyReconnectQueued = true;
+        StartCoroutine(ReconnectLobbySocketAfterDelay());
+    }
+
+    private IEnumerator ReconnectLobbySocketAfterDelay()
+    {
+        const float reconnectDelay = 0.15f;
+        yield return new WaitForSecondsRealtime(reconnectDelay);
+        lobbyReconnectQueued = false;
+
+        if (suppressLobbyReconnect || currentLobby == null || gameStarted)
+        {
+            yield break;
+        }
+
+        lobbySocketReconnectAttempts++;
+        SetText(lobbyStatusText, "Reconnecting lobby socket...");
+        NetLog($"Lobby reconnect attempt #{lobbySocketReconnectAttempts}.");
+        OpenLobbySocket();
     }
 
     private void HandleLobbySocketMessage(string json)
     {
+        lobbyMessagesReceived++;
         SocketTypeEnvelopeDto envelope = JsonUtility.FromJson<SocketTypeEnvelopeDto>(json);
+        NetLog($"Lobby message #{lobbyMessagesReceived}: {envelope.type}");
+        if (logSocketPayloads)
+        {
+            NetLog($"Lobby payload: {json}");
+        }
         switch (envelope.type)
         {
             case "lobby_snapshot":
@@ -357,14 +470,55 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         gameStarted = true;
         ResetStateSendTracking();
+        EnsureLocalMemberForGameStart(start);
         CacheGameStartedPlayerSlots(start);
+        currentGameLobbyId = start != null ? start.lobbyId : -1;
+        gameReconnectQueued = false;
+        suppressLobbyReconnect = true;
         lobbySocket?.Close();
         HideAllPanels();
         gameHudPanel.SetActive(true);
         SetText(gameStatusText, $"Game started in lobby {start.lobbyId}. WASD to move, Space to jump.");
+        NetLog("Entering game. " + DescribeGameStarted(start));
 
         BuildGameWorld();
-        OpenGameSocket(start.lobbyId);
+        PreSpawnRemotePlayers(start);
+        OpenGameSocket(currentGameLobbyId);
+    }
+
+    private void EnsureLocalMemberForGameStart(GameStartedDto start)
+    {
+        if (currentUser == null || start?.players == null)
+        {
+            return;
+        }
+
+        foreach (GameStartedPlayerDto player in start.players)
+        {
+            if (player.userId != currentUser.id)
+            {
+                continue;
+            }
+
+            if (localMember == null)
+            {
+                localMember = new LobbyMemberDto
+                {
+                    userId = currentUser.id,
+                    username = currentUser.username,
+                    playerId = player.playerId,
+                    slot = player.slot,
+                    isReady = true
+                };
+            }
+            else
+            {
+                localMember.playerId = player.playerId;
+                localMember.slot = player.slot;
+            }
+
+            return;
+        }
     }
 
     private void BuildGameWorld()
@@ -376,6 +530,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         remoteCubes.Clear();
         worldRoot = new GameObject("Multiplayer Runtime World");
+        runtimeSpawnAnchor = ResolveRuntimeSpawnAnchor();
 
         GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
         floor.name = "Prototype Floor";
@@ -403,36 +558,138 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             cameraObject.AddComponent<AudioListener>();
         }
 
+        CameraFollow sceneCameraFollow = camera.GetComponent<CameraFollow>();
+        if (sceneCameraFollow != null && sceneCameraFollow.enabled)
+        {
+            sceneCameraFollow.enabled = false;
+            NetLog("Disabled scene CameraFollow for multiplayer runtime camera.");
+        }
+
         camera.clearFlags = CameraClearFlags.Skybox;
         camera.nearClipPlane = 0.1f;
         camera.farClipPlane = 1000f;
 
-        Vector3 spawn = SpawnForSlot(localMember != null ? localMember.slot : 0);
-        GameObject local = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        local.name = "Local Player Cube";
-        local.transform.SetParent(worldRoot.transform);
-        local.transform.position = spawn;
-        SetRendererColor(local, GetPlayerColor(localMember != null ? localMember.playerId : null));
-        Rigidbody body = local.AddComponent<Rigidbody>();
-        body.freezeRotation = true;
-        localCube = local.AddComponent<LocalCubeController>();
+        Vector3 spawn = ResolveSafeSpawnPosition(ResolveLocalSpawnSlot(), currentUser != null ? currentUser.id : 0, "local");
+        string localKey = BuildPlayerKey(localMember != null ? localMember.playerId : null, currentUser != null ? currentUser.id : 0);
+        GameObject local = CreatePlayerCube("Local Player Cube", spawn, GetPlayerColor(localKey), true);
+        localCube = local.GetComponent<LocalCubeController>();
         localCube.Setup(camera.transform);
+    }
+
+    private void PreSpawnRemotePlayers(GameStartedDto start)
+    {
+        if (start?.players == null)
+        {
+            return;
+        }
+
+        foreach (GameStartedPlayerDto player in start.players)
+        {
+            if (player == null)
+            {
+                continue;
+            }
+
+            if (currentUser != null && player.userId == currentUser.id)
+            {
+                continue;
+            }
+
+            string key = BuildPlayerKey(player.playerId, player.userId);
+            if (remoteCubes.ContainsKey(key))
+            {
+                NetLog($"Remote cube pre-spawn skipped (already exists): {key}");
+                continue;
+            }
+
+            GameObject remoteObject = CreatePlayerCube(
+                "Remote Player Cube " + key,
+                ResolveSafeSpawnPosition(player.slot, player.userId, $"remote-pre:{key}"),
+                GetPlayerColor(key),
+                false
+            );
+            RemoteCubeController remote = remoteObject.GetComponent<RemoteCubeController>();
+            remoteCubes[key] = remote;
+            remoteStatesSpawned++;
+            NetLog($"Pre-spawned remote cube key={key}, slot={player.slot}, userId={player.userId}, pos={remoteObject.transform.position}");
+        }
     }
 
     private void OpenGameSocket(int lobbyId)
     {
         gameSocket?.Close();
         gameSocket = new CaveGameSocketClient();
-        gameSocket.Opened += () => SetText(gameStatusText, "Connected to game socket. Sending transform state at up to 30 Hz.");
-        gameSocket.ErrorReceived += error => SetText(gameStatusText, "Game socket error: " + error);
-        gameSocket.Closed += _ => SetText(gameStatusText, "Game socket closed.");
+        string url = api.BuildWebSocketUrl($"/ws/game/{lobbyId}/");
+        NetLog($"Opening game socket: {url}");
+        gameSocket.Opened += () =>
+        {
+            SetText(gameStatusText, "Connected to game socket. Sending transform state at up to 30 Hz.");
+            NetLog("Game socket opened.");
+            nextGamePingTime = Time.unscaledTime;
+        };
+        gameSocket.ErrorReceived += error =>
+        {
+            if (isShuttingDown || this == null)
+            {
+                return;
+            }
+
+            SetText(gameStatusText, "Game socket error: " + error);
+            NetLog("Game socket error: " + error, true);
+        };
+        gameSocket.Closed += closeCode =>
+        {
+            if (isShuttingDown || this == null)
+            {
+                return;
+            }
+
+            lastGameSocketCloseCode = closeCode;
+            SetText(gameStatusText, "Game socket closed (" + closeCode + ").");
+            NetLog("Game socket closed: " + closeCode, IsSocketCloseWarning(closeCode));
+            QueueGameReconnectIfNeeded();
+        };
         gameSocket.MessageReceived += HandleGameSocketMessage;
-        gameSocket.Connect(api.BuildWebSocketUrl($"/ws/game/{lobbyId}/"));
+        gameSocket.Connect(url);
+    }
+
+    private void QueueGameReconnectIfNeeded()
+    {
+        if (!gameStarted || gameReconnectQueued || currentGameLobbyId <= 0)
+        {
+            return;
+        }
+
+        gameReconnectQueued = true;
+        StartCoroutine(ReconnectGameSocketAfterDelay());
+    }
+
+    private IEnumerator ReconnectGameSocketAfterDelay()
+    {
+        const float reconnectDelay = 0.75f;
+        yield return new WaitForSecondsRealtime(reconnectDelay);
+        gameReconnectQueued = false;
+
+        if (!gameStarted || currentGameLobbyId <= 0)
+        {
+            yield break;
+        }
+
+        gameSocketReconnectAttempts++;
+        SetText(gameStatusText, "Reconnecting game socket...");
+        NetLog($"Game reconnect attempt #{gameSocketReconnectAttempts}.");
+        OpenGameSocket(currentGameLobbyId);
     }
 
     private void HandleGameSocketMessage(string json)
     {
+        gameMessagesReceived++;
         SocketTypeEnvelopeDto envelope = JsonUtility.FromJson<SocketTypeEnvelopeDto>(json);
+        NetLog($"Game message #{gameMessagesReceived}: {envelope.type}");
+        if (logSocketPayloads)
+        {
+            NetLog($"Game payload: {json}");
+        }
         switch (envelope.type)
         {
             case "room_snapshot":
@@ -462,23 +719,60 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void ApplyRemoteState(PlayerStateDto state)
     {
-        if (state == null || string.IsNullOrWhiteSpace(state.playerId) || (localMember != null && state.playerId == localMember.playerId))
+        if (state == null)
         {
+            remoteStatesDroppedInvalid++;
             return;
         }
 
-        if (!remoteCubes.TryGetValue(state.playerId, out RemoteCubeController remote))
+        bool hasLocalUserId = (localMember != null && localMember.userId > 0) || (currentUser != null && currentUser.id > 0);
+        int effectiveLocalUserId = localMember != null && localMember.userId > 0
+            ? localMember.userId
+            : (currentUser != null ? currentUser.id : 0);
+
+        bool isLocalByUserId = hasLocalUserId && state.userId > 0 && state.userId == effectiveLocalUserId;
+        bool isLocalByPlayerIdFallback = !hasLocalUserId
+            && localMember != null
+            && !string.IsNullOrWhiteSpace(localMember.playerId)
+            && !string.IsNullOrWhiteSpace(state.playerId)
+            && state.playerId == localMember.playerId;
+
+        if (isLocalByUserId || isLocalByPlayerIdFallback)
         {
-            GameObject remoteObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            remoteObject.name = "Remote Player Cube " + state.playerId;
-            remoteObject.transform.SetParent(worldRoot.transform);
-            remoteObject.transform.position = MultiplayerJson.ArrayToVector(state.position);
-            SetRendererColor(remoteObject, GetPlayerColor(state.playerId));
-            remote = remoteObject.AddComponent<RemoteCubeController>();
-            remoteCubes[state.playerId] = remote;
+            remoteStatesDroppedAsLocal++;
+            if (logRemoteStateDecisions)
+            {
+                NetLog($"Dropped remote state as local. state.playerId={state.playerId}, state.userId={state.userId}, local.playerId={localMember?.playerId}, local.userId={effectiveLocalUserId}");
+            }
+            return;
+        }
+
+        string remoteKey = BuildPlayerKey(state.playerId, state.userId);
+
+        if (!remoteCubes.TryGetValue(remoteKey, out RemoteCubeController remote))
+        {
+            Vector3 initialPosition = MultiplayerJson.ArrayToVector(state.position);
+            if (initialPosition == Vector3.zero)
+            {
+                initialPosition = ResolveSafeSpawnPosition(0, state.userId, $"remote-state:{remoteKey}");
+            }
+            GameObject remoteObject = CreatePlayerCube(
+                "Remote Player Cube " + remoteKey,
+                initialPosition,
+                GetPlayerColor(remoteKey),
+                false
+            );
+            remote = remoteObject.GetComponent<RemoteCubeController>();
+            remoteCubes[remoteKey] = remote;
+            remoteStatesSpawned++;
+            if (logRemoteStateDecisions)
+            {
+                NetLog($"Spawned remote from state key={remoteKey}, state.userId={state.userId}, state.pos={initialPosition}");
+            }
         }
 
         remote.ApplyState(state);
+        remoteStatesApplied++;
         RecordRemoteStateReceived();
     }
 
@@ -489,6 +783,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
+        lastGamePongReceiveTime = Time.unscaledTime;
         lastGameRttMs = Mathf.Max(0f, (float)((Time.realtimeSinceStartupAsDouble - pong.clientTime) * 1000.0));
     }
 
@@ -516,6 +811,36 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         Destroy(remote.gameObject);
         remoteCubes.Remove(playerId);
+    }
+
+    private string GetLocalPlayerId()
+    {
+        if (localMember != null && !string.IsNullOrWhiteSpace(localMember.playerId))
+        {
+            return localMember.playerId;
+        }
+
+        if (currentUser != null && currentUser.id > 0)
+        {
+            return $"user-{currentUser.id}";
+        }
+
+        return null;
+    }
+
+    private int ResolveLocalSpawnSlot()
+    {
+        if (localMember != null && localMember.slot >= 0)
+        {
+            return localMember.slot;
+        }
+
+        if (currentUser != null)
+        {
+            return Mathf.Abs(currentUser.id) % DefaultMaxPlayers;
+        }
+
+        return 0;
     }
 
     private bool ShouldSendStateNow(float now)
@@ -556,7 +881,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         SetText(
             gameStatusText,
-            $"WASD move, Space jump\nSocket RTT: {rtt} | Remote states: {remoteStatesPerSecond}/s | Last remote: {lastRemote}\nRelay: direct Daphne process, up to 30 Hz");
+            $"WASD move, Space jump\nSocket RTT: {rtt} | Remote states: {remoteStatesPerSecond}/s | Last remote: {lastRemote}\nRelay: direct Daphne process, up to 30 Hz\nDBG {debugClientTag}: gameMsg={gameMessagesReceived}, applied={remoteStatesApplied}, spawned={remoteStatesSpawned}, droppedLocal={remoteStatesDroppedAsLocal}");
     }
 
     private void ResetStateSendTracking()
@@ -574,6 +899,85 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         remoteStateRateWindowStart = Time.unscaledTime;
         remoteStatesInWindow = 0;
         remoteStatesPerSecond = 0;
+        gameMessagesReceived = 0;
+        remoteStatesApplied = 0;
+        remoteStatesDroppedAsLocal = 0;
+        remoteStatesDroppedInvalid = 0;
+        remoteStatesSpawned = 0;
+        lastGamePingSendTime = -1f;
+        lastGamePongReceiveTime = -1f;
+    }
+
+    private void DumpMultiplayerDebugSnapshot()
+    {
+        StringBuilder sb = new StringBuilder(256);
+        sb.Append("=== Multiplayer Debug Snapshot === ");
+        sb.Append("client=").Append(debugClientTag);
+        sb.Append(", userId=").Append(currentUser != null ? currentUser.id : 0);
+        sb.Append(", localPlayerId=").Append(GetLocalPlayerId() ?? "null");
+        sb.Append(", lobbyId=").Append(currentLobby != null ? currentLobby.id : -1);
+        sb.Append(", gameLobbyId=").Append(currentGameLobbyId);
+        sb.Append(", lobbyMsg=").Append(lobbyMessagesReceived);
+        sb.Append(", gameMsg=").Append(gameMessagesReceived);
+        sb.Append(", remoteApplied=").Append(remoteStatesApplied);
+        sb.Append(", remoteSpawned=").Append(remoteStatesSpawned);
+        sb.Append(", remoteDroppedLocal=").Append(remoteStatesDroppedAsLocal);
+        sb.Append(", remoteDroppedInvalid=").Append(remoteStatesDroppedInvalid);
+        sb.Append(", remoteCubeCount=").Append(remoteCubes.Count);
+        sb.Append(", lastLobbyClose=").Append(lastLobbySocketCloseCode);
+        sb.Append(", lastGameClose=").Append(lastGameSocketCloseCode);
+        sb.Append(", lastPingAgoMs=").Append(lastGamePingSendTime >= 0f ? ((Time.unscaledTime - lastGamePingSendTime) * 1000f).ToString("0") : "n/a");
+        sb.Append(", lastPongAgoMs=").Append(lastGamePongReceiveTime >= 0f ? ((Time.unscaledTime - lastGamePongReceiveTime) * 1000f).ToString("0") : "n/a");
+        Debug.Log(sb.ToString());
+    }
+
+    private string DescribeGameStarted(GameStartedDto start)
+    {
+        if (start?.players == null)
+        {
+            return "game_started payload missing players.";
+        }
+
+        StringBuilder sb = new StringBuilder(128);
+        sb.Append("game_started players=");
+        for (int i = 0; i < start.players.Length; i++)
+        {
+            GameStartedPlayerDto p = start.players[i];
+            if (p == null)
+            {
+                continue;
+            }
+
+            if (i > 0)
+            {
+                sb.Append(" | ");
+            }
+
+            sb.Append("{uid=").Append(p.userId)
+              .Append(", pid=").Append(p.playerId)
+              .Append(", slot=").Append(p.slot)
+              .Append("}");
+        }
+
+        return sb.ToString();
+    }
+
+    private void NetLog(string message, bool warning = false)
+    {
+        if (!verboseNetworkingLogs)
+        {
+            return;
+        }
+
+        string formatted = $"[MP:{debugClientTag}] {message}";
+        if (warning)
+        {
+            Debug.LogWarning(formatted);
+        }
+        else
+        {
+            Debug.Log(formatted);
+        }
     }
 
     private void BuildUi()
@@ -932,6 +1336,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             {
                 playerSlotsById[member.playerId] = member.slot;
             }
+
+            if (member.userId > 0)
+            {
+                playerSlotsById[$"user-{member.userId}"] = member.slot;
+            }
         }
     }
 
@@ -947,6 +1356,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             if (!string.IsNullOrWhiteSpace(player.playerId))
             {
                 playerSlotsById[player.playerId] = player.slot;
+            }
+
+            if (player.userId > 0)
+            {
+                playerSlotsById[$"user-{player.userId}"] = player.slot;
             }
         }
     }
@@ -1034,6 +1448,183 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             new Vector3(4f, 0.5f, 4f),
         };
         return spawns[Mathf.Abs(slot) % spawns.Length];
+    }
+
+    private Vector3 SpawnForPlayer(int slot, int userId)
+    {
+        Vector3 baseSpawn = SpawnForSlot(slot);
+        if (userId == 0)
+        {
+            return runtimeSpawnAnchor + baseSpawn;
+        }
+
+        // Secondary separation in case backend sends duplicate/invalid slots.
+        int hash = Mathf.Abs(userId);
+        float offsetX = ((hash % 3) - 1) * 6f;
+        float offsetZ = (((hash / 3) % 3) - 1) * 6f;
+        return runtimeSpawnAnchor + baseSpawn + new Vector3(offsetX, 0f, offsetZ);
+    }
+
+    private Vector3 ResolveSafeSpawnPosition(int slot, int userId, string context)
+    {
+        Vector3 candidate = SpawnForPlayer(slot, userId);
+        if (TrySampleNavMeshSpawn(candidate, out Vector3 navMeshPosition))
+        {
+            return navMeshPosition;
+        }
+
+        if (TryResolveGroundHeight(candidate, out float groundHeight))
+        {
+            Vector3 grounded = new Vector3(candidate.x, groundHeight + SpawnHeightOffset, candidate.z);
+            NetLog($"Ground-height spawn fallback ({context}) at {grounded}");
+            return grounded;
+        }
+
+        float safeY = Mathf.Max(candidate.y + SpawnHeightOffset, runtimeSpawnAnchor.y + SpawnHeightOffset, SpawnHeightOffset);
+        Vector3 fallback = new Vector3(candidate.x, safeY, candidate.z);
+        NetLog($"Final spawn fallback ({context}) at {fallback}", true);
+        return fallback;
+    }
+
+    private static bool TrySampleNavMeshSpawn(Vector3 nearPosition, out Vector3 safePosition)
+    {
+        Vector3 probe = nearPosition + Vector3.up * SpawnNavMeshProbeHeight;
+        if (NavMesh.SamplePosition(probe, out NavMeshHit hit, SpawnNavMeshSampleRadius, NavMesh.AllAreas))
+        {
+            safePosition = hit.position + Vector3.up * SpawnHeightOffset;
+            return true;
+        }
+
+        safePosition = Vector3.zero;
+        return false;
+    }
+
+    private static bool TryResolveGroundHeight(Vector3 nearPosition, out float groundHeight)
+    {
+        Vector3 rayOrigin = nearPosition + Vector3.up * SpawnRaycastHeight;
+        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, SpawnRaycastDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        {
+            groundHeight = hit.point.y;
+            return true;
+        }
+
+        Terrain terrain = Terrain.activeTerrain;
+        if (terrain != null)
+        {
+            groundHeight = terrain.SampleHeight(nearPosition) + terrain.transform.position.y;
+            return true;
+        }
+
+        groundHeight = 0f;
+        return false;
+    }
+
+    private static string BuildPlayerKey(string playerId, int userId)
+    {
+        if (userId > 0)
+        {
+            return $"user-{userId}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(playerId))
+        {
+            return playerId;
+        }
+
+        return $"user-{userId}";
+    }
+
+    private GameObject CreatePlayerCube(string objectName, Vector3 position, Color color, bool isLocal)
+    {
+        GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = objectName;
+        cube.transform.SetParent(worldRoot.transform);
+        cube.transform.position = position;
+        SetRendererColor(cube, color);
+
+        Rigidbody body = cube.GetComponent<Rigidbody>();
+        if (body == null)
+        {
+            body = cube.AddComponent<Rigidbody>();
+        }
+
+        body.freezeRotation = true;
+        if (isLocal)
+        {
+            body.isKinematic = false;
+            body.useGravity = true;
+            if (cube.GetComponent<LocalCubeController>() == null)
+            {
+                cube.AddComponent<LocalCubeController>();
+            }
+        }
+        else
+        {
+            body.isKinematic = true;
+            body.useGravity = false;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            if (cube.GetComponent<RemoteCubeController>() == null)
+            {
+                cube.AddComponent<RemoteCubeController>();
+            }
+        }
+
+        return cube;
+    }
+
+    private Vector3 ResolveRuntimeSpawnAnchor()
+    {
+        GameObject[] roots = FindObjectsByType<GameObject>(FindObjectsInactive.Exclude);
+        foreach (GameObject root in roots)
+        {
+            if (root == null || !root.activeInHierarchy)
+            {
+                continue;
+            }
+
+            if (!string.Equals(root.name, "Player", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (root.GetComponent<LocalCubeController>() != null || root.transform.IsChildOf(transform))
+            {
+                continue;
+            }
+
+            Vector3 anchor = root.transform.position;
+            root.SetActive(false);
+            NetLog($"Disabled scene Player object at {anchor} and using it as multiplayer spawn anchor.");
+            return new Vector3(anchor.x, Mathf.Max(anchor.y, 0.5f), anchor.z);
+        }
+
+        Vector3 fallback = Vector3.zero;
+        if (Camera.main != null)
+        {
+            fallback = Camera.main.transform.position;
+        }
+
+        if (TrySampleNavMeshSpawn(fallback, out Vector3 navMeshFallback))
+        {
+            NetLog($"No active scene Player found; using NavMesh fallback anchor at {navMeshFallback}.");
+            return navMeshFallback;
+        }
+
+        if (TryResolveGroundHeight(fallback, out float groundHeight))
+        {
+            Vector3 groundedFallback = new Vector3(fallback.x, groundHeight + SpawnHeightOffset, fallback.z);
+            NetLog($"No active scene Player found; using ground fallback anchor at {groundedFallback}.");
+            return groundedFallback;
+        }
+
+        Vector3 finalFallback = new Vector3(fallback.x, Mathf.Max(fallback.y, SpawnHeightOffset), fallback.z);
+        NetLog($"No active scene Player found; using default fallback anchor at {finalFallback}.", true);
+        return finalFallback;
+    }
+
+    private static bool IsSocketCloseWarning(string closeCode)
+    {
+        return !string.Equals(closeCode, "Normal", StringComparison.OrdinalIgnoreCase);
     }
 
     private Color GetPlayerColor(string playerId)

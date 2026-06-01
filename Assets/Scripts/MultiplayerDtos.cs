@@ -137,12 +137,13 @@ public sealed class PlayerStateDto
     public float[] velocity;
     public string animationState = "idle";
 
-    public static PlayerStateDto FromTransform(string playerId, int seq, Transform transform, Vector3 velocity)
+    public static PlayerStateDto FromTransform(string playerId, int userId, int seq, Transform transform, Vector3 velocity)
     {
         return new PlayerStateDto
         {
             type = "player_state",
             playerId = playerId,
+            userId = userId,
             seq = seq,
             clientTime = Time.realtimeSinceStartupAsDouble,
             position = MultiplayerJson.VectorToArray(transform.position),

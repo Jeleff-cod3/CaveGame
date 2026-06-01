@@ -5,6 +5,9 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(NavMeshAgent))]
 public class NavMeshWASDMovement : MonoBehaviour
 {
+    private const float NavMeshRecoverInterval = 0.5f;
+    private const float NavMeshRecoverSampleRadius = 40f;
+
     [Header("Movement")]
     public float moveSpeed = 6f;
     public float rotationSpeed = 14f;
@@ -20,11 +23,18 @@ public class NavMeshWASDMovement : MonoBehaviour
     private NavMeshAgent agent;
     private Rigidbody rb;
     private bool isIdle;
+    private float nextNavMeshRecoverTime;
 
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         rb = GetComponent<Rigidbody>();
+
+        if (agent != null && agent.enabled)
+        {
+            // Defer NavMeshAgent activation until runtime navmesh is built and sampled.
+            agent.enabled = false;
+        }
 
         ResolveMovementConflicts();
 
@@ -35,7 +45,7 @@ public class NavMeshWASDMovement : MonoBehaviour
         agent.autoBraking = false;
 
         agent.updateRotation = false;
-        agent.isStopped = false;
+        TryRecoverNavMeshBinding();
     }
 
     private void ResolveMovementConflicts()
@@ -52,8 +62,12 @@ public class NavMeshWASDMovement : MonoBehaviour
 
         if (forceRigidbodyKinematic && rb != null)
         {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
+            if (!rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+
             rb.isKinematic = true;
             rb.useGravity = false;
             rb.constraints = RigidbodyConstraints.FreezeRotation;
@@ -62,14 +76,23 @@ public class NavMeshWASDMovement : MonoBehaviour
 
     private void Update()
     {
-        if (agent == null || !agent.isActiveAndEnabled)
+        if (agent == null)
         {
             return;
         }
 
-        if (!agent.isOnNavMesh)
+        if (!agent.enabled || !agent.isOnNavMesh)
         {
-            return;
+            if (Time.time >= nextNavMeshRecoverTime)
+            {
+                nextNavMeshRecoverTime = Time.time + NavMeshRecoverInterval;
+                TryRecoverNavMeshBinding();
+            }
+
+            if (!agent.enabled || !agent.isOnNavMesh)
+            {
+                return;
+            }
         }
 
         HandleMovement();
@@ -216,6 +239,42 @@ public class NavMeshWASDMovement : MonoBehaviour
         }
 
         isIdle = false;
+        agent.isStopped = false;
+    }
+
+    private void TryRecoverNavMeshBinding()
+    {
+        if (agent == null)
+        {
+            return;
+        }
+
+        if (agent.enabled && agent.isOnNavMesh)
+        {
+            agent.isStopped = false;
+            agent.nextPosition = transform.position;
+            return;
+        }
+
+        Vector3 probe = transform.position + Vector3.up * 2f;
+        if (!NavMesh.SamplePosition(probe, out NavMeshHit hit, NavMeshRecoverSampleRadius, NavMesh.AllAreas))
+        {
+            return;
+        }
+
+        if (!agent.enabled)
+        {
+            agent.enabled = true;
+        }
+
+        if (!agent.enabled)
+        {
+            return;
+        }
+
+        agent.Warp(hit.position);
+        transform.position = hit.position;
+        agent.nextPosition = hit.position;
         agent.isStopped = false;
     }
 }

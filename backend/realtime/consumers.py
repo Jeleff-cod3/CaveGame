@@ -1,4 +1,5 @@
 import json
+import logging
 from time import time
 
 from channels.db import database_sync_to_async
@@ -20,6 +21,7 @@ from .room_state import PlayerRuntimeState, get_room
 from .validators import is_valid_player_state
 
 JSON_SEPARATORS = (",", ":")
+logger = logging.getLogger(__name__)
 
 
 async def send_to_game_room(room, payload: dict, sender_channel_name: str | None = None) -> None:
@@ -235,55 +237,70 @@ class GameConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             return
 
-        message_type = data.get("type")
+        try:
+            message_type = data.get("type")
 
-        if message_type == PLAYER_STATE:
-            await self.handle_player_state(data)
-        elif message_type == PING:
-            await self.send_json(
-                {
-                    "type": PONG,
-                    "clientTime": data.get("clientTime"),
-                    "serverTime": time(),
-                }
+            if message_type == PLAYER_STATE:
+                await self.handle_player_state(data)
+            elif message_type == PING:
+                await self.send_json(
+                    {
+                        "type": PONG,
+                        "clientTime": data.get("clientTime"),
+                        "serverTime": time(),
+                    }
+                )
+            elif message_type == HEARTBEAT:
+                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+        except Exception:
+            logger.exception(
+                "GameConsumer.receive failed (lobby=%s user=%s type=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("type"),
             )
-        elif message_type == HEARTBEAT:
-            await self.send_json({"type": HEARTBEAT, "serverTime": time()})
 
     async def handle_player_state(self, data):
-        if not is_valid_player_state(data):
-            return
+        try:
+            if not is_valid_player_state(data):
+                return
 
-        room = get_room(self.lobby_id)
-        player = room.players.get(self.user.id)
-        if player is None:
-            return
+            room = get_room(self.lobby_id)
+            player = room.players.get(self.user.id)
+            if player is None:
+                return
 
-        client_player_id = data.get("playerId")
-        if client_player_id is not None and client_player_id != player.player_id:
-            return
+            client_player_id = data.get("playerId")
+            if client_player_id is not None and client_player_id != player.player_id:
+                return
 
-        seq = data["seq"]
-        if seq <= player.last_seq:
-            return
+            seq = data["seq"]
+            if seq <= player.last_seq:
+                return
 
-        now = time()
-        if not player.can_accept_state_message(now):
-            return
+            now = time()
+            if not player.can_accept_state_message(now):
+                return
 
-        player.last_seq = seq
-        player.last_seen = now
-        player.position = data["position"]
-        player.rotation = data["rotation"]
-        player.velocity = data["velocity"]
-        player.animation_state = data.get("animationState", player.animation_state)
+            player.last_seq = seq
+            player.last_seen = now
+            player.position = data["position"]
+            player.rotation = data["rotation"]
+            player.velocity = data["velocity"]
+            player.animation_state = data.get("animationState", player.animation_state)
 
-        payload = {
-            "type": PLAYER_STATE,
-            **player.as_payload(),
-        }
+            payload = {
+                "type": PLAYER_STATE,
+                **player.as_payload(),
+            }
 
-        await send_to_game_room(room, payload, self.channel_name)
+            await send_to_game_room(room, payload, self.channel_name)
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_player_state failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
 
     async def send_room_snapshot(self):
         room = get_room(self.lobby_id)

@@ -349,6 +349,19 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 5063822679274524390, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
   m_PrefabInstance: {fileID: 1809343742}
   m_PrefabAsset: {fileID: 0}
+--- !u!134 &1292077560
+PhysicsMaterial:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  serializedVersion: 2
+  m_DynamicFriction: 0.6
+  m_StaticFriction: 0.6
+  m_Bounciness: 0
+  m_FrictionCombine: 0
+  m_BounceCombine: 0
 --- !u!1 &1316673185
 GameObject:
   m_ObjectHideFlags: 0
@@ -790,7 +803,7 @@ NavMeshAgent:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1566773663}
-  m_Enabled: 1
+  m_Enabled: 0
   m_AgentTypeID: 0
   m_Radius: 0.5
   m_Speed: 3.5
@@ -819,12 +832,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NavMeshWASDMovement
   moveSpeed: 6
   rotationSpeed: 14
-  destinationDistance: 1.5
-  destinationUpdateRate: 0.05
   useCameraRelativeMovement: 0
   cameraTransform: {fileID: 0}
-  navMeshSampleDistance: 1.5
-  areaMask: -1
   disablePlayerControllerLoose: 1
   forceRigidbodyKinematic: 1
 --- !u!1 &1630489982
@@ -1095,6 +1104,10 @@ PrefabInstance:
       propertyPath: m_IsKinematic
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 4198862050767732063, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
+      propertyPath: m_Material
+      value: 
+      objectReference: {fileID: 1292077560}
     - target: {fileID: 5063822679274524390, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
       propertyPath: m_LocalPosition.x
       value: 500
