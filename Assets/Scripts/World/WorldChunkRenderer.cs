@@ -1,8 +1,14 @@
 using System.Collections.Generic;
 using UnityEngine;
-
+using Unity.AI.Navigation;
+using UnityEngine.AI;
 public class WorldChunkRenderer : MonoBehaviour
 {
+    [Header("Navigation")]
+    public NavMeshSurface navMeshSurface;
+    public bool buildNavMeshAtRuntime = true;
+    public bool rocksBlockNavigation = true;
+    public bool treesBlockNavigation = true;
     [Header("References")]
     public Transform player;
     public Material terrainMaterial;
@@ -61,21 +67,48 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private GameObject caveInstance;
 
-    private void Start()
+private void Start()
+{
+    if (Mathf.Abs(transform.lossyScale.y) < 0.001f)
     {
-        if (Mathf.Abs(transform.lossyScale.y) < 0.001f)
-        {
-            Debug.LogError("WorldChunkRenderer parent has Y scale near 0. This will flatten all chunks.");
-        }
-
-        Debug.Log($"WorldChunkRenderer scale: {transform.lossyScale}");
-        GenerateWorld();
-        DebugWorldHeightRange();
-        PlacePlayerAtArenaCenter();
-        currentPlayerChunk = GetPlayerChunkCoord();
-        UpdateVisibleChunks();
-        SpawnCave();
+        Debug.LogError("WorldChunkRenderer parent has Y scale near 0. This will flatten all chunks.");
     }
+
+    Debug.Log($"WorldChunkRenderer scale: {transform.lossyScale}");
+
+    if (navMeshSurface == null)
+    {
+        navMeshSurface = GetComponent<NavMeshSurface>();
+    }
+
+    GenerateWorld();
+    DebugWorldHeightRange();
+    PlacePlayerAtArenaCenter();
+
+    currentPlayerChunk = GetPlayerChunkCoord();
+    UpdateVisibleChunks();
+
+    BuildWorldNavMesh();
+    SnapPlayerToNavMesh();
+    SpawnCave();
+}
+private void BuildWorldNavMesh()
+{
+    if (!buildNavMeshAtRuntime)
+    {
+        return;
+    }
+
+    if (navMeshSurface == null)
+    {
+        Debug.LogWarning("NavMeshSurface is missing.");
+        return;
+    }
+
+    navMeshSurface.BuildNavMesh();
+
+    Debug.Log("Runtime NavMesh built for generated world.");
+}
 
     private void Update()
     {
@@ -89,6 +122,23 @@ public class WorldChunkRenderer : MonoBehaviour
         UpdateGroundGrassMaterial();
     }
 
+    private void MarkObjectAsNotWalkable(GameObject obj)
+    {
+    NavMeshModifier modifier = obj.AddComponent<NavMeshModifier>();
+
+    modifier.overrideArea = true;
+
+    int notWalkableArea = NavMesh.GetAreaFromName("Not Walkable");
+
+    if (notWalkableArea >= 0)
+    {
+        modifier.area = notWalkableArea;
+    }
+    else
+    {
+        modifier.area = 1;
+    }
+    }
     private void UpdateGroundGrassMaterial()
     {
         if (groundGrassMaterial == null || player == null || groundGrassSettings == null)
@@ -143,12 +193,38 @@ public class WorldChunkRenderer : MonoBehaviour
 
         player.position = new Vector3(
             testX,
-            height + 20f,
+            height + 1f,
             testZ
         );
 
         Debug.Log($"Player placed in RESOURCE AREA: {player.position}, terrain height={height}");
     }
+
+    private void SnapPlayerToNavMesh()
+{
+    if (player == null)
+    {
+        return;
+    }
+
+    if (NavMesh.SamplePosition(player.position, out NavMeshHit hit, 50f, NavMesh.AllAreas))
+    {
+        player.position = hit.position + Vector3.up * 0.1f;
+
+        NavMeshAgent agent = player.GetComponent<NavMeshAgent>();
+
+        if (agent != null)
+        {
+            agent.Warp(hit.position);
+        }
+
+        Debug.Log($"Player snapped to NavMesh at {hit.position}");
+    }
+    else
+    {
+        Debug.LogError("Could not find NavMesh near player. NavMesh probably did not bake near the spawn point.");
+    }
+}
 
     private void GenerateWorld()
     {
@@ -300,6 +376,7 @@ public class WorldChunkRenderer : MonoBehaviour
         MeshFilter meshFilter = groundGrassObject.AddComponent<MeshFilter>();
         MeshRenderer meshRenderer = groundGrassObject.AddComponent<MeshRenderer>();
 
+
         meshFilter.sharedMesh = groundGrassMesh;
         meshRenderer.sharedMaterial = groundGrassMaterial;
     }
@@ -355,9 +432,16 @@ public class WorldChunkRenderer : MonoBehaviour
 
             MeshFilter rockFilter = rockObject.AddComponent<MeshFilter>();
             MeshRenderer rockRenderer = rockObject.AddComponent<MeshRenderer>();
+            MeshCollider rockCollider = rockObject.AddComponent<MeshCollider>();
 
             rockFilter.sharedMesh = meshes.rockMesh;
             rockRenderer.sharedMaterial = rockMaterial;
+            rockCollider.sharedMesh = meshes.rockMesh;
+
+            if (rocksBlockNavigation)
+            {
+                MarkObjectAsNotWalkable(rockObject);
+            }
         }
     }
 
@@ -469,9 +553,16 @@ public class WorldChunkRenderer : MonoBehaviour
 
             MeshFilter treeFilter = treeObject.AddComponent<MeshFilter>();
             MeshRenderer treeRenderer = treeObject.AddComponent<MeshRenderer>();
+            MeshCollider treeCollider = treeObject.AddComponent<MeshCollider>();
 
             treeFilter.sharedMesh = meshes.treeMesh;
             treeRenderer.sharedMaterial = treeMaterial;
+            treeCollider.sharedMesh = meshes.treeMesh;
+
+            if (treesBlockNavigation)
+            {
+                MarkObjectAsNotWalkable(treeObject);
+            }   
         }
     }
     private void CreateGrassForChunk(GameObject chunkObject, int startX, int startZ)
