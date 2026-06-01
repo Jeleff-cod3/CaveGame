@@ -2,34 +2,34 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public struct VegetationChunkMeshes
+public struct DeadTreeChunkMeshes
 {
-    public Mesh vegetationMesh;
+    public Mesh deadTreeMesh;
     public Mesh shadowMesh;
 }
 
-public static class VegetationChunkGenerator
+public static class DeadTreeChunkGenerator
 {
-    public static VegetationChunkMeshes GenerateVegetationMeshes(
+    public static DeadTreeChunkMeshes GenerateDeadTreeMeshes(
         WorldData worldData,
         int startX,
         int startZ,
         int chunkSize,
         int seed,
-        VegetationSettings settings
+        DeadTreeSettings settings
     )
     {
-        List<Vector3> vertices = new List<Vector3>();
-        List<int> triangles = new List<int>();
-        List<Color> colors = new List<Color>();
+        List<Vector3> treeVertices = new List<Vector3>();
+        List<int> treeTriangles = new List<int>();
+        List<Color> treeColors = new List<Color>();
 
         List<Vector3> shadowVertices = new List<Vector3>();
         List<int> shadowTriangles = new List<int>();
 
         System.Random random = new System.Random(
             seed ^
-            startX * 49663 ^
-            startZ * 92791
+            startX * 73471 ^
+            startZ * 126113
         );
 
         for (int z = 0; z <= chunkSize; z += settings.spacing)
@@ -45,17 +45,16 @@ public static class VegetationChunkGenerator
                 }
 
                 TerrainZone zone = worldData.GetZone(worldX, worldZ);
-
                 float baseDensity = GetZoneDensity(zone, settings);
 
                 float largePatch = Mathf.PerlinNoise(
-                    (worldX + seed * 3.71f) / settings.largePatchScale,
-                    (worldZ - seed * 9.17f) / settings.largePatchScale
+                    (worldX + seed * 13.21f) / settings.largePatchScale,
+                    (worldZ - seed * 4.83f) / settings.largePatchScale
                 );
 
                 float smallPatch = Mathf.PerlinNoise(
-                    (worldX - seed * 4.11f) / settings.smallPatchScale,
-                    (worldZ + seed * 2.93f) / settings.smallPatchScale
+                    (worldX - seed * 7.19f) / settings.smallPatchScale,
+                    (worldZ + seed * 3.47f) / settings.smallPatchScale
                 );
 
                 float patchValue = Mathf.Lerp(largePatch, smallPatch, 0.4f);
@@ -113,20 +112,20 @@ public static class VegetationChunkGenerator
                     finalWorldZ - startZ
                 );
 
-                float roll = (float)random.NextDouble();
-                float rotation = (float)random.NextDouble() * 360f;
+                float height = Mathf.Lerp(
+                    settings.minHeight,
+                    settings.maxHeight,
+                    (float)random.NextDouble()
+                );
 
                 float radius = Mathf.Lerp(
-                    settings.minBushRadius,
-                    settings.maxBushRadius,
+                    settings.minRadius,
+                    settings.maxRadius,
                     (float)random.NextDouble()
                 );
 
-                float height = Mathf.Lerp(
-                    settings.minBushHeight,
-                    settings.maxBushHeight,
-                    (float)random.NextDouble()
-                );
+                float rotation = (float)random.NextDouble() * 360f;
+                Color color = settings.dryTwigColor * Mathf.Lerp(0.85f, 1.12f, patchValue);
 
                 if (settings.generateShadows)
                 {
@@ -134,63 +133,40 @@ public static class VegetationChunkGenerator
                         shadowVertices,
                         shadowTriangles,
                         localPosition,
-                        radius,
+                        height * 0.45f,
                         rotation,
                         settings
                     );
                 }
 
-                if (roll < settings.deadBushChance)
-                {
-                    AddDeadBush(
-                        vertices,
-                        triangles,
-                        colors,
-                        localPosition,
-                        radius,
-                        height,
-                        rotation,
-                        settings.deadBushColor,
-                        settings.dryTwigColor
-                    );
-                }
-                else
-                {
-                    Color bushColor = Color.Lerp(
-                        settings.aliveBushColorA,
-                        settings.aliveBushColorB,
-                        patchValue
-                    );
-
-                    AddAliveBush(
-                        vertices,
-                        triangles,
-                        colors,
-                        localPosition,
-                        radius,
-                        height,
-                        rotation,
-                        bushColor
-                    );
-                }
+                AddDeadTree(
+                    treeVertices,
+                    treeTriangles,
+                    treeColors,
+                    localPosition,
+                    height,
+                    radius,
+                    rotation,
+                    color
+                );
             }
         }
 
-        VegetationChunkMeshes result = new VegetationChunkMeshes();
+        DeadTreeChunkMeshes result = new DeadTreeChunkMeshes();
 
-        if (vertices.Count > 0)
+        if (treeVertices.Count > 0)
         {
-            Mesh mesh = new Mesh();
-            mesh.indexFormat = IndexFormat.UInt32;
+            Mesh treeMesh = new Mesh();
+            treeMesh.indexFormat = IndexFormat.UInt32;
 
-            mesh.SetVertices(vertices);
-            mesh.SetTriangles(triangles, 0);
-            mesh.SetColors(colors);
+            treeMesh.SetVertices(treeVertices);
+            treeMesh.SetTriangles(treeTriangles, 0);
+            treeMesh.SetColors(treeColors);
 
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
+            treeMesh.RecalculateNormals();
+            treeMesh.RecalculateBounds();
 
-            result.vegetationMesh = mesh;
+            result.deadTreeMesh = treeMesh;
         }
 
         if (shadowVertices.Count > 0)
@@ -210,7 +186,7 @@ public static class VegetationChunkGenerator
         return result;
     }
 
-    private static float GetZoneDensity(TerrainZone zone, VegetationSettings settings)
+    private static float GetZoneDensity(TerrainZone zone, DeadTreeSettings settings)
     {
         switch (zone)
         {
@@ -251,115 +227,111 @@ public static class VegetationChunkGenerator
         return angle > maxSlopeAngle;
     }
 
-    private static void AddAliveBush(
+    private static void AddDeadTree(
         List<Vector3> vertices,
         List<int> triangles,
         List<Color> colors,
         Vector3 position,
-        float radius,
         float height,
+        float radius,
         float rotationDegrees,
         Color color
     )
     {
-        int clumpCount = 3;
+        AddTrunk(
+            vertices,
+            triangles,
+            colors,
+            position,
+            height,
+            radius,
+            rotationDegrees,
+            color
+        );
 
-        for (int i = 0; i < clumpCount; i++)
-        {
-            float angle = rotationDegrees + i * 120f;
-            Quaternion rotation = Quaternion.Euler(0f, angle, 0f);
+        Vector3 branchBase = position + Vector3.up * height * 0.55f;
 
-            Vector3 offset = rotation * new Vector3(radius * 0.25f, 0f, 0f);
+        AddBranchQuad(
+            vertices,
+            triangles,
+            colors,
+            branchBase,
+            rotationDegrees + 35f,
+            height * 0.45f,
+            height * 0.28f,
+            radius * 0.7f,
+            color
+        );
 
-            AddLowPolyBlob(
-                vertices,
-                triangles,
-                colors,
-                position + offset,
-                radius * RandomFactor(i, 0.65f, 0.95f),
-                height * RandomFactor(i + 7, 0.75f, 1.15f),
-                angle,
-                color * RandomFactor(i + 13, 0.85f, 1.08f)
-            );
-        }
+        AddBranchQuad(
+            vertices,
+            triangles,
+            colors,
+            branchBase,
+            rotationDegrees - 55f,
+            height * 0.38f,
+            height * 0.22f,
+            radius * 0.6f,
+            color
+        );
+
+        AddBranchQuad(
+            vertices,
+            triangles,
+            colors,
+            branchBase + Vector3.up * height * 0.18f,
+            rotationDegrees + 145f,
+            height * 0.32f,
+            height * 0.18f,
+            radius * 0.5f,
+            color
+        );
     }
 
-    private static void AddDeadBush(
+    private static void AddTrunk(
         List<Vector3> vertices,
         List<int> triangles,
         List<Color> colors,
-        Vector3 position,
-        float radius,
+        Vector3 basePosition,
         float height,
-        float rotationDegrees,
-        Color bushColor,
-        Color twigColor
-    )
-    {
-        int branchCount = 7;
-
-        for (int i = 0; i < branchCount; i++)
-        {
-            float angle = rotationDegrees + i * (360f / branchCount);
-            float branchLength = radius * RandomFactor(i, 0.55f, 1.1f);
-            float branchHeight = height * RandomFactor(i + 3, 0.55f, 1.05f);
-
-            AddBranchQuad(
-                vertices,
-                triangles,
-                colors,
-                position,
-                angle,
-                branchLength,
-                branchHeight,
-                0.035f,
-                Color.Lerp(bushColor, twigColor, 0.65f)
-            );
-        }
-    }
-
-    private static void AddLowPolyBlob(
-        List<Vector3> vertices,
-        List<int> triangles,
-        List<Color> colors,
-        Vector3 center,
         float radius,
-        float height,
         float rotationDegrees,
         Color color
     )
     {
-        int segments = 8;
+        int sides = 5;
+        int startIndex = vertices.Count;
+
         Quaternion rotation = Quaternion.Euler(0f, rotationDegrees, 0f);
 
-        int topIndex = vertices.Count;
-        vertices.Add(center + Vector3.up * height);
-        colors.Add(color);
-
-        int ringStart = vertices.Count;
-
-        for (int i = 0; i < segments; i++)
+        for (int i = 0; i < sides; i++)
         {
-            float angle = ((float)i / segments) * Mathf.PI * 2f;
-
-            float irregularity = 0.8f + 0.22f * Mathf.Sin(angle * 3f + rotationDegrees);
-            float finalRadius = radius * irregularity;
-
+            float angle = ((float)i / sides) * Mathf.PI * 2f;
             Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
             dir = rotation * dir;
 
-            vertices.Add(center + dir * finalRadius);
-            colors.Add(color * (0.85f + 0.15f * Mathf.Sin(angle * 2f)));
+            vertices.Add(basePosition + dir * radius);
+            vertices.Add(basePosition + Vector3.up * height + dir * radius * 0.45f);
+
+            colors.Add(color);
+            colors.Add(color * 1.08f);
         }
 
-        for (int i = 0; i < segments; i++)
+        for (int i = 0; i < sides; i++)
         {
-            int current = ringStart + i;
-            int next = ringStart + ((i + 1) % segments);
+            int currentBottom = startIndex + i * 2;
+            int currentTop = currentBottom + 1;
 
-            triangles.Add(topIndex);
-            triangles.Add(current);
-            triangles.Add(next);
+            int nextBottom = startIndex + ((i + 1) % sides) * 2;
+            int nextTop = nextBottom + 1;
+
+            triangles.Add(currentBottom);
+            triangles.Add(currentTop);
+            triangles.Add(nextTop);
+
+            triangles.Add(currentBottom);
+            triangles.Add(nextTop);
+            triangles.Add(nextBottom);
         }
     }
 
@@ -410,7 +382,7 @@ public static class VegetationChunkGenerator
         Vector3 basePosition,
         float radius,
         float rotationDegrees,
-        VegetationSettings settings
+        DeadTreeSettings settings
     )
     {
         int segments = 10;
@@ -455,13 +427,5 @@ public static class VegetationChunkGenerator
             triangles.Add(next);
             triangles.Add(current);
         }
-    }
-
-    private static float RandomFactor(int seed, float min, float max)
-    {
-        float value = Mathf.Abs(Mathf.Sin(seed * 91.17f) * 43758.5453f);
-        value = value - Mathf.Floor(value);
-
-        return Mathf.Lerp(min, max, value);
     }
 }
