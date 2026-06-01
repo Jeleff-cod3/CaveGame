@@ -8,24 +8,25 @@ public class NavMeshWASDMovement : MonoBehaviour
     [Header("Movement")]
     public float moveSpeed = 6f;
     public float rotationSpeed = 14f;
-    public float destinationDistance = 1.8f;
-    public float destinationUpdateRate = 0.03f;
 
     [Header("Input")]
     public bool useCameraRelativeMovement = false;
     public Transform cameraTransform;
 
-    [Header("NavMesh")]
-    public float navMeshSampleDistance = 2f;
-    public int areaMask = NavMesh.AllAreas;
+    [Header("Conflict Handling")]
+    public bool disablePlayerControllerLoose = true;
+    public bool forceRigidbodyKinematic = true;
 
     private NavMeshAgent agent;
-    private Vector3 lastDestination;
-    private float nextDestinationUpdateTime;
+    private Rigidbody rb;
+    private bool isIdle;
 
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
+        rb = GetComponent<Rigidbody>();
+
+        ResolveMovementConflicts();
 
         agent.speed = moveSpeed;
         agent.angularSpeed = 720f;
@@ -35,6 +36,28 @@ public class NavMeshWASDMovement : MonoBehaviour
 
         agent.updateRotation = false;
         agent.isStopped = false;
+    }
+
+    private void ResolveMovementConflicts()
+    {
+        if (disablePlayerControllerLoose)
+        {
+            PlayerControllerLoose looseController = GetComponent<PlayerControllerLoose>();
+            if (looseController != null && looseController.enabled)
+            {
+                looseController.enabled = false;
+                Debug.LogWarning("Disabled PlayerControllerLoose on player because NavMeshWASDMovement is active.");
+            }
+        }
+
+        if (forceRigidbodyKinematic && rb != null)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.isKinematic = true;
+            rb.useGravity = false;
+            rb.constraints = RigidbodyConstraints.FreezeRotation;
+        }
     }
 
     private void Update()
@@ -58,36 +81,13 @@ public class NavMeshWASDMovement : MonoBehaviour
 
         if (inputDirection.sqrMagnitude < 0.001f)
         {
-            StopAgent();
+            EnterIdleState();
             return;
         }
 
+        ExitIdleState();
         RotateTowards(inputDirection);
-
-        if (Time.time < nextDestinationUpdateTime)
-        {
-            return;
-        }
-
-        nextDestinationUpdateTime = Time.time + destinationUpdateRate;
-
-        Vector3 wantedDestination = transform.position + inputDirection * destinationDistance;
-
-        if (!NavMesh.SamplePosition(wantedDestination, out NavMeshHit navHit, navMeshSampleDistance, areaMask))
-        {
-            StopAgent();
-            return;
-        }
-
-        if ((navHit.position - lastDestination).sqrMagnitude < 0.03f)
-        {
-            return;
-        }
-
-        lastDestination = navHit.position;
-
-        agent.isStopped = false;
-        agent.SetDestination(navHit.position);
+        agent.Move(inputDirection * moveSpeed * Time.deltaTime);
     }
 
     private Vector3 GetInputDirection()
@@ -131,16 +131,7 @@ public class NavMeshWASDMovement : MonoBehaviour
 
         if (!useCameraRelativeMovement)
         {
-            Vector3 forward = transform.forward;
-            Vector3 right = transform.right;
-
-            forward.y = 0f;
-            right.y = 0f;
-
-            forward.Normalize();
-            right.Normalize();
-
-            return (forward * rawInput.z + right * rawInput.x).normalized;
+            return rawInput;
         }
 
         if (cameraTransform == null && Camera.main != null)
@@ -190,5 +181,41 @@ public class NavMeshWASDMovement : MonoBehaviour
 
         agent.ResetPath();
         agent.isStopped = true;
+        agent.velocity = Vector3.zero;
+    }
+
+    private void EnterIdleState()
+    {
+        if (!agent.isOnNavMesh)
+        {
+            return;
+        }
+
+        if (!isIdle)
+        {
+            StopAgent();
+            // Keep internal NavMeshAgent simulation anchored to the exact current transform.
+            // This prevents subtle drift/jitter when no input is held.
+            agent.nextPosition = transform.position;
+            isIdle = true;
+            return;
+        }
+
+        // If something external nudged agent simulation while idle, hard-snap it back.
+        if ((agent.nextPosition - transform.position).sqrMagnitude > 0.0004f)
+        {
+            agent.Warp(transform.position);
+        }
+    }
+
+    private void ExitIdleState()
+    {
+        if (!isIdle)
+        {
+            return;
+        }
+
+        isIdle = false;
+        agent.isStopped = false;
     }
 }

@@ -825,8 +825,6 @@ MonoBehaviour:
   cameraTransform: {fileID: 0}
   navMeshSampleDistance: 1.5
   areaMask: -1
-  disablePlayerControllerLoose: 1
-  forceRigidbodyKinematic: 1
 --- !u!1 &1630489982
 GameObject:
   m_ObjectHideFlags: 0
@@ -1089,10 +1087,6 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2630993894379272612, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
       propertyPath: m_UseGravity
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2630993894379272612, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
-      propertyPath: m_IsKinematic
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 5063822679274524390, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
@@ -1143,8 +1137,7 @@ PrefabInstance:
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
-    m_RemovedComponents:
-    - {fileID: 8120311638987908389, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
+    m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents:
