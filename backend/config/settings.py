@@ -156,6 +156,10 @@ else:
     # these options flattened into each host dict.
     redis_host.update(json_object_from_env("CHANNEL_REDIS_CONNECTION_KWARGS_JSON"))
     redis_host.update(json_object_from_env("CHANNEL_REDIS_HOST_OPTIONS_JSON"))
+    if os.environ.get("REDIS_SOCKET_CONNECT_TIMEOUT"):
+        redis_host["socket_connect_timeout"] = int(os.environ["REDIS_SOCKET_CONNECT_TIMEOUT"])
+    if os.environ.get("REDIS_SOCKET_TIMEOUT"):
+        redis_host["socket_timeout"] = int(os.environ["REDIS_SOCKET_TIMEOUT"])
 
     redis_layer_config: dict[str, object] = {
         "hosts": [redis_host],

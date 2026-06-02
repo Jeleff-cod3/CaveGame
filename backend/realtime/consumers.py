@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import os
 from time import time
 
 from channels.db import database_sync_to_async
@@ -21,6 +23,7 @@ from .room_state import PlayerRuntimeState, get_room
 from .validators import is_valid_player_state
 
 JSON_SEPARATORS = (",", ":")
+HEARTBEAT_INTERVAL = int(os.environ.get("WS_HEARTBEAT_INTERVAL", "5"))
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +86,8 @@ def get_member_details(lobby_id: int, user_id: int) -> dict | None:
 
 
 class LobbyConsumer(AsyncWebsocketConsumer):
+    heartbeat_task: asyncio.Task | None = None
+
     async def connect(self):
         try:
             self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
@@ -100,6 +105,8 @@ class LobbyConsumer(AsyncWebsocketConsumer):
 
             await self.channel_layer.group_add(self.room_group_name, self.channel_name)
             await self.accept()
+
+            self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
 
             snapshot = await get_lobby_snapshot(self.lobby_id)
             if snapshot is not None:
@@ -127,6 +134,9 @@ class LobbyConsumer(AsyncWebsocketConsumer):
             await self.close()
 
     async def disconnect(self, close_code):
+        if self.heartbeat_task is not None:
+            self.heartbeat_task.cancel()
+
         if not hasattr(self, "room_group_name"):
             return
 
@@ -194,6 +204,20 @@ class LobbyConsumer(AsyncWebsocketConsumer):
                 event.get("payload", {}).get("type"),
             )
 
+    async def _heartbeat_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception(
+                "LobbyConsumer._heartbeat_loop failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
+
     async def send_json(self, payload: dict):
         try:
             await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
@@ -208,6 +232,8 @@ class LobbyConsumer(AsyncWebsocketConsumer):
 
 
 class GameConsumer(AsyncWebsocketConsumer):
+    heartbeat_task: asyncio.Task | None = None
+
     async def connect(self):
         self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
         self.room_group_name = f"game_{self.lobby_id}"
@@ -234,6 +260,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         room.connections[self.channel_name] = self
 
         await self.accept()
+        self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
         await self.send_room_snapshot()
 
         await send_to_game_room(
@@ -249,6 +276,9 @@ class GameConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
+        if self.heartbeat_task is not None:
+            self.heartbeat_task.cancel()
+
         if not hasattr(self, "room_group_name"):
             return
 
@@ -364,6 +394,20 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
 
         await self.send_json(event["payload"])
+
+    async def _heartbeat_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception(
+                "GameConsumer._heartbeat_loop failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
 
     async def send_json(self, payload: dict):
         try:
