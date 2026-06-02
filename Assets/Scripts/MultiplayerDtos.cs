@@ -77,6 +77,13 @@ public sealed class PingDto
 }
 
 [Serializable]
+public sealed class HeartbeatDto
+{
+    public string type = "heartbeat";
+    public double clientTime;
+}
+
+[Serializable]
 public sealed class PongDto
 {
     public string type;

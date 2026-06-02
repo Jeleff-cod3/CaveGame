@@ -7,7 +7,7 @@ using UnityEngine;
 
 public sealed class CaveGameSocketClient
 {
-    private const int CloseTimeoutMs = 250;
+    private const int CloseTimeoutMs = 750;
 
     private WebSocket socket;
     private readonly Queue<string> outboundQueue = new Queue<string>();
@@ -122,13 +122,22 @@ public sealed class CaveGameSocketClient
             return;
         }
 
+        WebSocket closingSocket = socket;
         try
         {
-            Task closeTask = socket.Close();
+            Task closeTask = closingSocket.Close();
             Task completed = await Task.WhenAny(closeTask, Task.Delay(CloseTimeoutMs));
             if (completed != closeTask)
             {
-                Debug.LogWarning("WebSocket close timed out; forcing local socket reset.");
+                string stateText = closingSocket.State.ToString();
+                if (closingSocket.State == WebSocketState.Closing || closingSocket.State == WebSocketState.Closed)
+                {
+                    Debug.Log($"WebSocket close still completing ({stateText}); forcing local socket reset.");
+                }
+                else
+                {
+                    Debug.LogWarning($"WebSocket close timed out in state={stateText}; forcing local socket reset.");
+                }
             }
         }
         catch (Exception exception)

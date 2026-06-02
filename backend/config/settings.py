@@ -1,5 +1,6 @@
 from pathlib import Path
 from urllib.parse import urlparse
+import json
 import os
 
 
@@ -79,6 +80,19 @@ def database_from_url(url: str) -> dict[str, object]:
     }
 
 
+def json_object_from_env(var_name: str) -> dict[str, object]:
+    raw = os.environ.get(var_name, "").strip()
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+    return parsed if isinstance(parsed, dict) else {}
+
+
 if os.environ.get("DATABASE_URL"):
     DATABASES = {"default": database_from_url(os.environ["DATABASE_URL"])}
 elif os.environ.get("POSTGRES_DB"):
@@ -133,14 +147,34 @@ if os.environ.get("USE_IN_MEMORY_CHANNEL_LAYER", "false").lower() in {"1", "true
         }
     }
 else:
+    redis_host: dict[str, object] = {
+        "address": os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+    }
+
+    # Backward-compatible escape hatch: old deployments used to pass connection
+    # options as a nested `connection_kwargs` object. channels_redis 4.x expects
+    # these options flattened into each host dict.
+    redis_host.update(json_object_from_env("CHANNEL_REDIS_CONNECTION_KWARGS_JSON"))
+    redis_host.update(json_object_from_env("CHANNEL_REDIS_HOST_OPTIONS_JSON"))
+
+    redis_layer_config: dict[str, object] = {
+        "hosts": [redis_host],
+        "capacity": int(os.environ.get("CHANNEL_LAYER_CAPACITY", "300")),
+        "expiry": int(os.environ.get("CHANNEL_LAYER_EXPIRY", "10")),
+        "group_expiry": int(os.environ.get("CHANNEL_LAYER_GROUP_EXPIRY", "3600")),
+    }
+
+    # Optional structured override for advanced tuning.
+    # Any legacy `connection_kwargs` key is normalized into host options.
+    extra_layer_config = json_object_from_env("CHANNEL_LAYER_CONFIG_JSON")
+    legacy_connection_kwargs = extra_layer_config.pop("connection_kwargs", None)
+    if isinstance(legacy_connection_kwargs, dict):
+        redis_host.update(legacy_connection_kwargs)
+    redis_layer_config.update(extra_layer_config)
+
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")],
-                "capacity": int(os.environ.get("CHANNEL_LAYER_CAPACITY", "300")),
-                "expiry": int(os.environ.get("CHANNEL_LAYER_EXPIRY", "10")),
-                "group_expiry": int(os.environ.get("CHANNEL_LAYER_GROUP_EXPIRY", "3600")),
-            },
+            "CONFIG": redis_layer_config,
         }
     }
