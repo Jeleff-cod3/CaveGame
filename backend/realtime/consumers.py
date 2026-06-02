@@ -213,7 +213,7 @@ class LobbyConsumer(AsyncWebsocketConsumer):
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
-                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+                await self.send(text_data=json.dumps({"type": HEARTBEAT, "serverTime": time()}, separators=JSON_SEPARATORS))
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -428,7 +428,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
-                await self.send_json({"type": HEARTBEAT, "serverTime": time()})
+                await self.send(text_data=json.dumps({"type": HEARTBEAT, "serverTime": time()}, separators=JSON_SEPARATORS))
         except asyncio.CancelledError:
             pass
         except Exception:
