@@ -93,6 +93,23 @@ def json_object_from_env(var_name: str) -> dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def env_bool(var_name: str, default: bool) -> bool:
+    raw = os.environ.get(var_name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(var_name: str, default: int) -> int:
+    raw = os.environ.get(var_name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 if os.environ.get("DATABASE_URL"):
     DATABASES = {"default": database_from_url(os.environ["DATABASE_URL"])}
 elif os.environ.get("POSTGRES_DB"):
@@ -160,6 +177,11 @@ else:
         redis_host["socket_connect_timeout"] = int(os.environ["REDIS_SOCKET_CONNECT_TIMEOUT"])
     if os.environ.get("REDIS_SOCKET_TIMEOUT"):
         redis_host["socket_timeout"] = int(os.environ["REDIS_SOCKET_TIMEOUT"])
+    redis_host.setdefault("socket_connect_timeout", env_int("REDIS_SOCKET_CONNECT_TIMEOUT_DEFAULT", 5))
+    redis_host.setdefault("socket_timeout", env_int("REDIS_SOCKET_TIMEOUT_DEFAULT", 30))
+    redis_host.setdefault("health_check_interval", env_int("REDIS_HEALTH_CHECK_INTERVAL", 30))
+    redis_host.setdefault("retry_on_timeout", env_bool("REDIS_RETRY_ON_TIMEOUT", True))
+    redis_host.setdefault("socket_keepalive", env_bool("REDIS_SOCKET_KEEPALIVE", True))
 
     redis_layer_config: dict[str, object] = {
         "hosts": [redis_host],

@@ -408,6 +408,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             SetText(lobbyStatusText, "Connected to lobby socket.");
             NetLog("Lobby socket opened.");
             nextLobbyPingTime = Time.unscaledTime;
+            lastLobbyPingSendTime = Time.unscaledTime;
+            lastLobbyPongReceiveTime = Time.unscaledTime;
             lastLobbyHeartbeatReceiveTime = Time.unscaledTime;
             lobbyHeartbeatCloseRequested = false;
             lobbySocketReconnectAttempts = 0;
@@ -782,6 +784,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             SetText(gameStatusText, "Connected to game socket. Sending transform state at up to 30 Hz.");
             NetLog("Game socket opened.");
             nextGamePingTime = Time.unscaledTime;
+            lastGamePingSendTime = Time.unscaledTime;
+            lastGamePongReceiveTime = Time.unscaledTime;
             lastGameHeartbeatReceiveTime = Time.unscaledTime;
             gameHeartbeatCloseRequested = false;
             gameSocketReconnectAttempts = 0;
@@ -1012,6 +1016,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         float lastSignalTime = Mathf.Max(lastPongTime, lastHeartbeatTime);
+        if (lastPingTime > lastSignalTime)
+        {
+            // A new ping was just sent and we have not received an ack yet.
+            // Start timeout from that ping instead of stale previous-session acks.
+            return (Time.unscaledTime - lastPingTime) > timeoutSeconds;
+        }
+
         if (lastSignalTime < 0f)
         {
             return (Time.unscaledTime - lastPingTime) > timeoutSeconds;

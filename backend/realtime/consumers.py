@@ -27,6 +27,11 @@ HEARTBEAT_INTERVAL = int(os.environ.get("WS_HEARTBEAT_INTERVAL", "5"))
 logger = logging.getLogger(__name__)
 
 
+def is_closed_transport_error(exception: Exception) -> bool:
+    text = str(exception).lower()
+    return "closed protocol" in text or "socket is already closed" in text
+
+
 async def send_to_game_room(room, payload: dict, sender_channel_name: str | None = None) -> None:
     stale_channels = []
     for channel_name, consumer in list(room.connections.items()):
@@ -221,59 +226,75 @@ class LobbyConsumer(AsyncWebsocketConsumer):
     async def send_json(self, payload: dict):
         try:
             await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
-        except Exception:
+        except Exception as exception:
+            if is_closed_transport_error(exception):
+                logger.info(
+                    "LobbyConsumer.send_json skipped closed transport (lobby=%s user=%s payload_type=%s)",
+                    getattr(self, "lobby_id", None),
+                    getattr(getattr(self, "user", None), "id", None),
+                    payload.get("type") if isinstance(payload, dict) else None,
+                )
+                return
             logger.exception(
                 "LobbyConsumer.send_json failed (lobby=%s user=%s payload_type=%s)",
                 getattr(self, "lobby_id", None),
                 getattr(getattr(self, "user", None), "id", None),
                 payload.get("type") if isinstance(payload, dict) else None,
             )
-            raise
+            return
 
 
 class GameConsumer(AsyncWebsocketConsumer):
     heartbeat_task: asyncio.Task | None = None
 
     async def connect(self):
-        self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
-        self.room_group_name = f"game_{self.lobby_id}"
-        self.user = self.scope["user"]
+        try:
+            self.lobby_id = int(self.scope["url_route"]["kwargs"]["lobby_id"])
+            self.room_group_name = f"game_{self.lobby_id}"
+            self.user = self.scope["user"]
 
-        if not self.user.is_authenticated:
+            if not self.user.is_authenticated:
+                await self.close()
+                return
+
+            self.member = await get_member_details(self.lobby_id, self.user.id)
+            if self.member is None or not self.member["isStarted"]:
+                await self.close()
+                return
+
+            self.player_id = self.member["playerId"]
+
+            room = get_room(self.lobby_id)
+            room.started = True
+            room.players[self.user.id] = PlayerRuntimeState(
+                user_id=self.user.id,
+                player_id=self.player_id,
+                channel_name=self.channel_name,
+            )
+            room.connections[self.channel_name] = self
+
+            await self.accept()
+            self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
+            await self.send_room_snapshot()
+
+            await send_to_game_room(
+                room,
+                {
+                    "type": PLAYER_JOINED,
+                    "lobbyId": self.lobby_id,
+                    "playerId": self.player_id,
+                    "userId": self.user.id,
+                    "slot": self.member["slot"],
+                },
+                self.channel_name,
+            )
+        except Exception:
+            logger.exception(
+                "GameConsumer.connect failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
             await self.close()
-            return
-
-        self.member = await get_member_details(self.lobby_id, self.user.id)
-        if self.member is None or not self.member["isStarted"]:
-            await self.close()
-            return
-
-        self.player_id = self.member["playerId"]
-
-        room = get_room(self.lobby_id)
-        room.started = True
-        room.players[self.user.id] = PlayerRuntimeState(
-            user_id=self.user.id,
-            player_id=self.player_id,
-            channel_name=self.channel_name,
-        )
-        room.connections[self.channel_name] = self
-
-        await self.accept()
-        self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
-        await self.send_room_snapshot()
-
-        await send_to_game_room(
-            room,
-            {
-                "type": PLAYER_JOINED,
-                "lobbyId": self.lobby_id,
-                "playerId": self.player_id,
-                "userId": self.user.id,
-                "slot": self.member["slot"],
-            },
-            self.channel_name,
-        )
 
     async def disconnect(self, close_code):
         if self.heartbeat_task is not None:
@@ -282,21 +303,29 @@ class GameConsumer(AsyncWebsocketConsumer):
         if not hasattr(self, "room_group_name"):
             return
 
-        room = get_room(self.lobby_id)
-        if hasattr(self, "user") and self.user.id in room.players:
-            del room.players[self.user.id]
+        try:
+            room = get_room(self.lobby_id)
+            if hasattr(self, "user") and self.user.id in room.players:
+                del room.players[self.user.id]
 
-        room.connections.pop(self.channel_name, None)
+            room.connections.pop(self.channel_name, None)
 
-        if hasattr(self, "player_id"):
-            await send_to_game_room(
-                room,
-                {
-                    "type": PLAYER_LEFT,
-                    "lobbyId": self.lobby_id,
-                    "playerId": self.player_id,
-                    "userId": self.user.id,
-                },
+            if hasattr(self, "player_id"):
+                await send_to_game_room(
+                    room,
+                    {
+                        "type": PLAYER_LEFT,
+                        "lobbyId": self.lobby_id,
+                        "playerId": self.player_id,
+                        "userId": self.user.id,
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "GameConsumer.disconnect failed (lobby=%s user=%s close_code=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                close_code,
             )
 
     async def receive(self, text_data=None, bytes_data=None):
@@ -412,11 +441,19 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def send_json(self, payload: dict):
         try:
             await self.send(text_data=json.dumps(payload, separators=JSON_SEPARATORS))
-        except Exception:
+        except Exception as exception:
+            if is_closed_transport_error(exception):
+                logger.info(
+                    "GameConsumer.send_json skipped closed transport (lobby=%s user=%s payload_type=%s)",
+                    getattr(self, "lobby_id", None),
+                    getattr(getattr(self, "user", None), "id", None),
+                    payload.get("type") if isinstance(payload, dict) else None,
+                )
+                return
             logger.exception(
                 "GameConsumer.send_json failed (lobby=%s user=%s payload_type=%s)",
                 getattr(self, "lobby_id", None),
                 getattr(getattr(self, "user", None), "id", None),
                 payload.get("type") if isinstance(payload, dict) else None,
             )
-            raise
+            return
