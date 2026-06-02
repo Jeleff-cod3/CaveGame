@@ -141,6 +141,10 @@ else:
                 "capacity": int(os.environ.get("CHANNEL_LAYER_CAPACITY", "300")),
                 "expiry": int(os.environ.get("CHANNEL_LAYER_EXPIRY", "10")),
                 "group_expiry": int(os.environ.get("CHANNEL_LAYER_GROUP_EXPIRY", "3600")),
+                "connection_kwargs": {
+                    "socket_connect_timeout": int(os.environ.get("REDIS_SOCKET_CONNECT_TIMEOUT", "10")),
+                    "socket_timeout": int(os.environ.get("REDIS_SOCKET_TIMEOUT", "10")),
+                },
             },
         }
     }
