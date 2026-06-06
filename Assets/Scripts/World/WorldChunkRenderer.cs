@@ -47,6 +47,11 @@ public class WorldChunkRenderer : MonoBehaviour
     public Material treeMaterial;
     public Material treeShadowMaterial;
 
+    [Header("Resource Forest Trees")]
+    public ResourceForestTreeSettings resourceForestTreeSettings;
+    public Material resourceForestTreeMaterial;
+    public Material resourceForestTreeShadowMaterial;
+
     [Header("Rocks")]
     public RockSettings rockSettings = new RockSettings();
     public Material rockMaterial;
@@ -322,6 +327,7 @@ public class WorldChunkRenderer : MonoBehaviour
         CreateGroundGrassForChunk(chunkObject, startX, startZ);
         CreateGrassForChunk(chunkObject, startX, startZ);
         CreateTreesForChunk(chunkObject, startX, startZ);
+        CreateResourceForestTreesForChunk(chunkObject, startX, startZ);
         CreateVegetationForChunk(chunkObject, startX, startZ);
         CreateDeadTreesForChunk(chunkObject, startX, startZ);
         CreateRocksForChunk(chunkObject, startX, startZ);
@@ -443,6 +449,33 @@ public class WorldChunkRenderer : MonoBehaviour
         else
         {
             Debug.LogError("Could not find NavMesh near player. NavMesh probably did not bake near the spawn point.");
+        }
+    }
+
+    private void CreateResourceForestTreesForChunk(GameObject chunkObject, int startX, int startZ)
+    {
+        var meshData = ResourceForestTreeChunkGenerator.GenerateTrees(
+            worldData, startX, startZ, chunkSize, seed, resourceForestTreeSettings
+        );
+
+        if (meshData.treeMesh != null)
+        {
+            GameObject treeObj = new GameObject("ResourceForestTrees");
+            treeObj.transform.SetParent(chunkObject.transform, false);
+            var mf = treeObj.AddComponent<MeshFilter>();
+            var mr = treeObj.AddComponent<MeshRenderer>();
+            mf.sharedMesh = meshData.treeMesh;
+            mr.sharedMaterial = resourceForestTreeMaterial;
+        }
+
+        if (meshData.shadowMesh != null)
+        {
+            GameObject shadowObj = new GameObject("ResourceForestShadows");
+            shadowObj.transform.SetParent(chunkObject.transform, false);
+            var mf = shadowObj.AddComponent<MeshFilter>();
+            var mr = shadowObj.AddComponent<MeshRenderer>();
+            mf.sharedMesh = meshData.shadowMesh;
+            mr.sharedMaterial = resourceForestTreeShadowMaterial;
         }
     }
 
