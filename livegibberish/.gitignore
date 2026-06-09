@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+runtime/
+models/
+*.wav
+*.json
+!docs/*.json
