@@ -2134,6 +2134,11 @@ public sealed class LocalCubeController : MonoBehaviour
     [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float jumpForce = 5f;
 
+    [Header("Combat Setup")]
+    [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.6f, 0.3f, 0.8f);
+    [SerializeField] private Vector3 attackPointLocalPosition = new Vector3(0f, 0.5f, 1.4f);
+    [SerializeField] private float pickupRangeRadius = 1.5f;
+
     private Rigidbody body;
     private Transform cameraTransform;
     private bool isGrounded = true;
@@ -2150,6 +2155,8 @@ public sealed class LocalCubeController : MonoBehaviour
     {
         body = GetComponent<Rigidbody>();
         previousPosition = transform.position;
+
+        SetupCombat();
     }
 
     private void Update()
@@ -2165,6 +2172,7 @@ public sealed class LocalCubeController : MonoBehaviour
     {
         Keyboard keyboard = Keyboard.current;
         Vector2 input = Vector2.zero;
+
         if (keyboard != null)
         {
             if (keyboard.wKey.isPressed) input.y += 1f;
@@ -2180,12 +2188,14 @@ public sealed class LocalCubeController : MonoBehaviour
         }
 
         Vector3 movement = new Vector3(input.x, 0f, input.y);
+
         if (movement.sqrMagnitude > 1f)
         {
             movement.Normalize();
         }
 
         body.MovePosition(body.position + movement * moveSpeed * Time.fixedDeltaTime);
+
         if (movement.sqrMagnitude > 0.001f)
         {
             body.MoveRotation(Quaternion.LookRotation(movement));
@@ -2193,6 +2203,82 @@ public sealed class LocalCubeController : MonoBehaviour
 
         Velocity = (transform.position - previousPosition) / Time.fixedDeltaTime;
         previousPosition = transform.position;
+    }
+
+    private void SetupCombat()
+    {
+        Transform weaponHolder = CreateChildIfMissing(
+            "WeaponHolder",
+            weaponHolderLocalPosition
+        );
+
+        Transform attackPoint = CreateChildIfMissing(
+            "AttackPoint",
+            attackPointLocalPosition
+        );
+
+        Transform pickupRange = CreateChildIfMissing(
+            "PickupRange",
+            Vector3.zero
+        );
+
+        SphereCollider pickupCollider = pickupRange.GetComponent<SphereCollider>();
+
+        if (pickupCollider == null)
+        {
+            pickupCollider = pickupRange.gameObject.AddComponent<SphereCollider>();
+        }
+
+        pickupCollider.isTrigger = true;
+        pickupCollider.radius = pickupRangeRadius;
+
+        PlayerWeaponPickup weaponPickup = GetComponent<PlayerWeaponPickup>();
+
+        if (weaponPickup == null)
+        {
+            weaponPickup = gameObject.AddComponent<PlayerWeaponPickup>();
+        }
+
+        weaponPickup.Initialize(weaponHolder);
+
+        PlayerCombat combat = GetComponent<PlayerCombat>();
+
+        if (combat == null)
+        {
+            combat = gameObject.AddComponent<PlayerCombat>();
+        }
+
+        int enemyLayerMask = LayerMask.GetMask("Enemy");
+
+        if (enemyLayerMask == 0)
+        {
+            Debug.LogWarning("Enemy layer was not found. Create a layer named Enemy and assign it to your enemy.");
+        }
+
+        combat.Initialize(weaponPickup, attackPoint, enemyLayerMask);
+
+        Debug.Log("Combat setup added to local multiplayer player.");
+    }
+
+    private Transform CreateChildIfMissing(string childName, Vector3 localPosition)
+    {
+        Transform existing = transform.Find(childName);
+
+        if (existing != null)
+        {
+            existing.localPosition = localPosition;
+            existing.localRotation = Quaternion.identity;
+            existing.localScale = Vector3.one;
+            return existing;
+        }
+
+        GameObject child = new GameObject(childName);
+        child.transform.SetParent(transform);
+        child.transform.localPosition = localPosition;
+        child.transform.localRotation = Quaternion.identity;
+        child.transform.localScale = Vector3.one;
+
+        return child.transform;
     }
 
     private void OnCollisionEnter(Collision collision)
