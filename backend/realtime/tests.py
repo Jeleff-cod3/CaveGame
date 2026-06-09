@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 
-from .validators import is_valid_player_state, is_vec3
+from .room_state import MammothRuntimeState
+from .validators import is_valid_mammoth_health, is_valid_player_state, is_vec3
 
 
 class PlayerStateValidatorTests(SimpleTestCase):
@@ -36,3 +37,38 @@ class PlayerStateValidatorTests(SimpleTestCase):
                 }
             )
         )
+
+
+class MammothHealthTests(SimpleTestCase):
+    def test_valid_mammoth_health_shape(self):
+        self.assertTrue(
+            is_valid_mammoth_health(
+                {
+                    "type": "mammoth_health",
+                    "enemyId": "mammoth",
+                    "currentHealth": 75,
+                    "maxHealth": 100,
+                    "damage": 25,
+                }
+            )
+        )
+
+    def test_rejects_invalid_mammoth_health_shape(self):
+        self.assertFalse(
+            is_valid_mammoth_health(
+                {
+                    "type": "mammoth_health",
+                    "enemyId": "mammoth",
+                    "currentHealth": 125,
+                    "maxHealth": 100,
+                    "damage": -5,
+                }
+            )
+        )
+
+    def test_damage_update_uses_server_side_canonical_health(self):
+        mammoth = MammothRuntimeState(current_health=100, max_health=100)
+        mammoth.apply_update(reported_current_health=75, reported_max_health=100, damage=25)
+        mammoth.apply_update(reported_current_health=75, reported_max_health=100, damage=25)
+
+        self.assertEqual(mammoth.current_health, 50)

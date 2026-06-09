@@ -12,6 +12,7 @@ from lobbies.models import Lobby, LobbyMember
 from .message_types import (
     HEARTBEAT,
     LOBBY_SNAPSHOT,
+    MAMMOTH_HEALTH,
     PING,
     PLAYER_JOINED,
     PLAYER_LEFT,
@@ -20,7 +21,7 @@ from .message_types import (
     ROOM_SNAPSHOT,
 )
 from .room_state import PlayerRuntimeState, get_room
-from .validators import is_valid_player_state
+from .validators import is_valid_mammoth_health, is_valid_player_state
 
 JSON_SEPARATORS = (",", ":")
 HEARTBEAT_INTERVAL = int(os.environ.get("WS_HEARTBEAT_INTERVAL", "5"))
@@ -342,6 +343,8 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             if message_type == PLAYER_STATE:
                 await self.handle_player_state(data)
+            elif message_type == MAMMOTH_HEALTH:
+                await self.handle_mammoth_health(data)
             elif message_type == PING:
                 await self.send_json(
                     {
@@ -402,6 +405,26 @@ class GameConsumer(AsyncWebsocketConsumer):
                 getattr(getattr(self, "user", None), "id", None),
             )
 
+    async def handle_mammoth_health(self, data):
+        try:
+            if not is_valid_mammoth_health(data):
+                return
+
+            room = get_room(self.lobby_id)
+            room.mammoth.apply_update(
+                reported_current_health=data["currentHealth"],
+                reported_max_health=data["maxHealth"],
+                damage=data.get("damage", 0),
+            )
+
+            await send_to_game_room(room, room.mammoth.as_payload(self.lobby_id))
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_mammoth_health failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
+
     async def send_room_snapshot(self):
         room = get_room(self.lobby_id)
         await self.send_json(
@@ -415,6 +438,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                     }
                     for player in room.players.values()
                 ],
+                "mammothHealth": room.mammoth.as_payload(self.lobby_id),
             }
         )
 

@@ -167,6 +167,32 @@ public sealed class RoomSnapshotDto
     public string type;
     public int lobbyId;
     public PlayerStateDto[] players;
+    public MammothHealthDto mammothHealth;
+}
+
+[Serializable]
+public sealed class MammothHealthDto
+{
+    public string type = "mammoth_health";
+    public int lobbyId;
+    public string enemyId = "mammoth";
+    public int currentHealth;
+    public int maxHealth;
+    public int damage;
+    public double serverTime;
+
+    public static MammothHealthDto FromEnemyHealth(int lobbyId, EnemyHealth enemyHealth, int damage)
+    {
+        return new MammothHealthDto
+        {
+            type = "mammoth_health",
+            lobbyId = lobbyId,
+            enemyId = "mammoth",
+            currentHealth = enemyHealth != null ? enemyHealth.CurrentHealth : 0,
+            maxHealth = enemyHealth != null ? enemyHealth.MaxHealth : 0,
+            damage = Mathf.Max(0, damage),
+        };
+    }
 }
 
 [Serializable]

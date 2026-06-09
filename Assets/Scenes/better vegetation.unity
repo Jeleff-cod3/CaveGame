@@ -265,6 +265,30 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &564977904 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 8701520126210055945, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
+  m_PrefabInstance: {fileID: 2078932839}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &564977909
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 564977904}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 79daf4303c36ff144b3f9dba7af16239, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothHealthBarUI
+  target: {fileID: 0}
+  preferredTargetName: Mammoth
+  bottomOffset: 24
+  barHeight: 30
+  horizontalPaddingPercent: 0.08
+  backgroundColor: {r: 0.06, g: 0.06, b: 0.07, a: 0.82}
+  fillColor: {r: 0.82, g: 0.08, b: 0.05, a: 0.95}
 --- !u!1 &840757480
 GameObject:
   m_ObjectHideFlags: 0
@@ -548,6 +572,9 @@ MonoBehaviour:
   buildNavMeshAtRuntime: 1
   rocksBlockNavigation: 1
   treesBlockNavigation: 1
+  deadTreesBlockNavigation: 1
+  renderFullMapBeforeNavMeshBake: 1
+  hideChunksOutsideViewAfterBake: 1
   player: {fileID: 967818619}
   terrainMaterial: {fileID: 2100000, guid: 5008a87914539b7419234f13c6053b4a, type: 2}
   cavePrefab: {fileID: 0}
@@ -675,6 +702,34 @@ MonoBehaviour:
     shadowRadiusZMultiplier: 0.58
   treeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
   treeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
+  resourceForestTreeSettings:
+    enabled: 1
+    spacing: 6
+    resourceDensity: 0.45
+    largePatchScale: 100
+    smallPatchScale: 28
+    patchStrength: 1.2
+    yOffset: 0.03
+    maxSlopeAngle: 28
+    minTrunkHeight1: 2
+    maxTrunkHeight1: 3.5
+    minTrunkRadius1: 0.08
+    maxTrunkRadius1: 0.15
+    minCanopyRadius1: 1
+    maxCanopyRadius1: 2
+    trunkColor1: {r: 0.35, g: 0.2, b: 0.1, a: 1}
+    leafColor1: {r: 0.05, g: 0.45, b: 0.05, a: 1}
+    minTrunkHeight2: 1.5
+    maxTrunkHeight2: 2.5
+    minTrunkRadius2: 0.12
+    maxTrunkRadius2: 0.22
+    minCanopyRadius2: 2
+    maxCanopyRadius2: 3.5
+    trunkColor2: {r: 0.3, g: 0.18, b: 0.08, a: 1}
+    leafColor2: {r: 0.12, g: 0.55, b: 0.12, a: 1}
+    generateShadows: 1
+  resourceForestTreeMaterial: {fileID: 0}
+  resourceForestTreeShadowMaterial: {fileID: 0}
   rockSettings:
     enabled: 1
     spacing: 7
@@ -736,6 +791,31 @@ MonoBehaviour:
     shadowOffsetZ: -0.08
   vegetationMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
   vegetationShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
+  deadTreeSettings:
+    enabled: 1
+    spacing: 8
+    arenaDensity: 0.01
+    borderDensity: 0.08
+    transitionDensity: 0.05
+    resourceDensity: 0.12
+    largePatchScale: 115
+    smallPatchScale: 30
+    patchStrength: 1.25
+    minHeight: 1.2
+    maxHeight: 2.6
+    minRadius: 0.06
+    maxRadius: 0.13
+    yOffset: 0.04
+    maxSlopeAngle: 28
+    dryTwigColor: {r: 0.3, g: 0.19, b: 0.09, a: 1}
+    generateShadows: 1
+    shadowYOffset: 0.022
+    shadowRadiusXMultiplier: 0.9
+    shadowRadiusZMultiplier: 0.55
+    shadowOffsetX: 0.12
+    shadowOffsetZ: -0.08
+  deadTreeMaterial: {fileID: 0}
+  deadTreeShadowMaterial: {fileID: 0}
   seed: 3
   arenaHeightMultiplier: 4
   resourceHeightMultiplier: 20
@@ -1263,7 +1343,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 8701520126210055945, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 564977909}
   m_SourcePrefab: {fileID: 100100000, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

@@ -43,10 +43,40 @@ class PlayerRuntimeState:
 
 
 @dataclass
+class MammothRuntimeState:
+    enemy_id: str = "mammoth"
+    current_health: int = 100
+    max_health: int = 100
+    last_updated: float = field(default_factory=time)
+
+    def apply_update(self, reported_current_health: int, reported_max_health: int, damage: int = 0) -> None:
+        self.max_health = max(1, int(reported_max_health))
+
+        if damage > 0:
+            self.current_health = max(0, self.current_health - int(damage))
+        else:
+            self.current_health = max(0, min(int(reported_current_health), self.max_health))
+
+        self.last_updated = time()
+
+    def as_payload(self, lobby_id: int) -> dict:
+        return {
+            "type": "mammoth_health",
+            "lobbyId": lobby_id,
+            "enemyId": self.enemy_id,
+            "currentHealth": self.current_health,
+            "maxHealth": self.max_health,
+            "damage": 0,
+            "serverTime": self.last_updated,
+        }
+
+
+@dataclass
 class RoomRuntimeState:
     lobby_id: int
     players: dict[int, PlayerRuntimeState] = field(default_factory=dict)
     connections: dict[str, object] = field(default_factory=dict)
+    mammoth: MammothRuntimeState = field(default_factory=MammothRuntimeState)
     started: bool = False
 
 

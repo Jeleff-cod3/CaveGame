@@ -32,6 +32,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
     private static Shader cachedObjectShader;
+    public static MultiplayerPrototype Instance { get; private set; }
 
     private static readonly Color Ink = new Color(0.035f, 0.043f, 0.075f, 0.96f);
     private static readonly Color Panel = new Color(0.07f, 0.09f, 0.16f, 0.94f);
@@ -100,6 +101,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private readonly Dictionary<string, RemoteCubeController> remoteCubes = new Dictionary<string, RemoteCubeController>();
     private readonly Dictionary<string, int> playerSlotsById = new Dictionary<string, int>();
     private Vector3 runtimeSpawnAnchor = Vector3.zero;
+    private MammothHealthDto pendingMammothHealth;
 
     [Header("Networking Debug")]
     [SerializeField] private bool verboseNetworkingLogs = true;
@@ -158,6 +160,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void Awake()
     {
+        Instance = this;
         Application.runInBackground = true;
         debugClientTag = System.Guid.NewGuid().ToString("N").Substring(0, 6);
         api = new CaveGameApiClient(DefaultServerUrl, () => authToken);
@@ -170,6 +173,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         lobbySocket?.Pump();
         gameSocket?.Pump();
+
+        if (pendingMammothHealth != null)
+        {
+            TryApplyMammothHealth(pendingMammothHealth);
+        }
 
         if (Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame)
         {
@@ -253,6 +261,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         suppressLobbyReconnect = true;
         lobbySocket?.Close();
         gameSocket?.Close();
+        if (ReferenceEquals(Instance, this))
+        {
+            Instance = null;
+        }
     }
 
     private void Login()
@@ -622,6 +634,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         NetLog("Entering game. " + DescribeGameStarted(start));
 
         BuildGameWorld();
+        TryApplyMammothHealth(pendingMammothHealth);
         PreSpawnRemotePlayers(start);
         OpenGameSocket(currentGameLobbyId);
     }
@@ -907,16 +920,21 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 RoomSnapshotDto snapshot = JsonUtility.FromJson<RoomSnapshotDto>(json);
                 if (snapshot.players == null)
                 {
-                    return;
+                    snapshot.players = Array.Empty<PlayerStateDto>();
                 }
 
                 foreach (PlayerStateDto player in snapshot.players)
                 {
                     ApplyRemoteState(player);
                 }
+
+                TryApplyMammothHealth(snapshot.mammothHealth);
                 break;
             case "player_state":
                 ApplyRemoteState(JsonUtility.FromJson<PlayerStateDto>(json));
+                break;
+            case "mammoth_health":
+                TryApplyMammothHealth(JsonUtility.FromJson<MammothHealthDto>(json));
                 break;
             case "pong":
                 HandleGamePong(JsonUtility.FromJson<PongDto>(json));
@@ -1140,6 +1158,76 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         SetText(
             gameStatusText,
             $"WASD move, Space jump\nSocket RTT: {rtt} | Remote states: {remoteStatesPerSecond}/s | Last remote: {lastRemote}\nRelay: direct Daphne process, up to 30 Hz\nDBG {debugClientTag}: gameMsg={gameMessagesReceived}, applied={remoteStatesApplied}, spawned={remoteStatesSpawned}, droppedLocal={remoteStatesDroppedAsLocal}");
+    }
+
+    public static void NotifyEnemyDamaged(EnemyHealth enemyHealth, int damage)
+    {
+        if (Instance == null)
+        {
+            return;
+        }
+
+        Instance.SendMammothHealthUpdate(enemyHealth, damage);
+    }
+
+    public static bool ShouldDeferEnemyDeath(EnemyHealth enemyHealth)
+    {
+        return Instance != null && Instance.gameStarted && IsMammothEnemy(enemyHealth);
+    }
+
+    private void SendMammothHealthUpdate(EnemyHealth enemyHealth, int damage)
+    {
+        if (!gameStarted || gameSocket == null || !gameSocket.IsOpen || enemyHealth == null || !IsMammothEnemy(enemyHealth))
+        {
+            return;
+        }
+
+        MammothHealthDto update = MammothHealthDto.FromEnemyHealth(currentGameLobbyId, enemyHealth, damage);
+        gameSocket.SendJson(JsonUtility.ToJson(update));
+    }
+
+    private void TryApplyMammothHealth(MammothHealthDto mammothHealth)
+    {
+        if (mammothHealth == null)
+        {
+            return;
+        }
+
+        EnemyHealth mammoth = FindMammothEnemy();
+        if (mammoth == null)
+        {
+            pendingMammothHealth = mammothHealth;
+            return;
+        }
+
+        pendingMammothHealth = null;
+        mammoth.ApplyNetworkHealth(mammothHealth.currentHealth, mammothHealth.maxHealth);
+    }
+
+    private static EnemyHealth FindMammothEnemy()
+    {
+        EnemyHealth[] enemies = FindObjectsByType<EnemyHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (EnemyHealth enemy in enemies)
+        {
+            if (IsMammothEnemy(enemy))
+            {
+                return enemy;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsMammothEnemy(EnemyHealth enemyHealth)
+    {
+        if (enemyHealth == null)
+        {
+            return false;
+        }
+
+        string enemyName = enemyHealth.gameObject.name;
+        return enemyName.IndexOf("Mammoth", StringComparison.OrdinalIgnoreCase) >= 0
+            || enemyName.IndexOf("Mamoth", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void ResetStateSendTracking()

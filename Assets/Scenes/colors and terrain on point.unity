@@ -119,6 +119,19 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!134 &59429148
+PhysicsMaterial:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  serializedVersion: 2
+  m_DynamicFriction: 0.6
+  m_StaticFriction: 0.6
+  m_Bounciness: 0
+  m_FrictionCombine: 0
+  m_BounceCombine: 0
 --- !u!1 &116420132 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 7393804371683279046, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
@@ -152,7 +165,7 @@ BoxCollider:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 133414969}
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 1105252291}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -312,8 +325,26 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PickupableWeapon
   damage: 10
-  attackRange: 1
   attackCooldown: 0.6
+  thrustDistance: 0.9
+  thrustForwardTime: 0.08
+  thrustReturnTime: 0.18
+  tipHitbox: {fileID: 0}
+  spearTip: {fileID: 0}
+  throwSpeed: 18
+  throwUpwardBoost: 4.5
+  gravity: 22
+  tipCastRadius: 0.12
+  maxThrownLifetime: 6
+  stickableLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  groundBreakChance: 0.5
+  stuckDepth: 0.25
+  alignSpearToVelocity: 1
 --- !u!54 &230671571
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -348,7 +379,7 @@ CapsuleCollider:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 230671569}
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 59429148}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -628,6 +659,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4fa95c54b1c4d544e9683b07d90e5cbc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerWeaponPickup
+--- !u!134 &1105252291
+PhysicsMaterial:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  serializedVersion: 2
+  m_DynamicFriction: 0.6
+  m_StaticFriction: 0.6
+  m_Bounciness: 0
+  m_FrictionCombine: 0
+  m_BounceCombine: 0
 --- !u!1 &1316673185
 GameObject:
   m_ObjectHideFlags: 0
@@ -1299,6 +1343,30 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!1 &1754914262 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 8701520126210055945, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
+  m_PrefabInstance: {fileID: 2078932839}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1754914267
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1754914262}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 79daf4303c36ff144b3f9dba7af16239, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothHealthBarUI
+  target: {fileID: 133414974}
+  preferredTargetName: Mammoth
+  bottomOffset: 24
+  barHeight: 30
+  horizontalPaddingPercent: 0.08
+  backgroundColor: {r: 0.06, g: 0.06, b: 0.07, a: 0.82}
+  fillColor: {r: 0.82, g: 0.08, b: 0.05, a: 0.95}
 --- !u!1001 &1809343742
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1470,7 +1538,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 8701520126210055945, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1754914267}
   m_SourcePrefab: {fileID: 100100000, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
