@@ -678,6 +678,34 @@ MonoBehaviour:
     shadowRadiusZMultiplier: 0.58
   treeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
   treeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
+  resourceForestTreeSettings:
+    enabled: 1
+    spacing: 6
+    resourceDensity: 0.45
+    largePatchScale: 100
+    smallPatchScale: 28
+    patchStrength: 1.2
+    yOffset: 0.03
+    maxSlopeAngle: 28
+    minTrunkHeight1: 2
+    maxTrunkHeight1: 3.5
+    minTrunkRadius1: 0.08
+    maxTrunkRadius1: 0.15
+    minCanopyRadius1: 1
+    maxCanopyRadius1: 2
+    trunkColor1: {r: 0.35, g: 0.2, b: 0.1, a: 1}
+    leafColor1: {r: 0.05, g: 0.45, b: 0.05, a: 1}
+    minTrunkHeight2: 1.5
+    maxTrunkHeight2: 2.5
+    minTrunkRadius2: 0.12
+    maxTrunkRadius2: 0.22
+    minCanopyRadius2: 2
+    maxCanopyRadius2: 3.5
+    trunkColor2: {r: 0.3, g: 0.18, b: 0.08, a: 1}
+    leafColor2: {r: 0.12, g: 0.55, b: 0.12, a: 1}
+    generateShadows: 1
+  resourceForestTreeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
+  resourceForestTreeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
   rockSettings:
     enabled: 1
     spacing: 7
@@ -741,7 +769,7 @@ MonoBehaviour:
   vegetationShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
   deadTreeSettings:
     enabled: 1
-    spacing: 8
+    spacing: 12
     arenaDensity: 0.01
     borderDensity: 0.08
     transitionDensity: 0.05
@@ -762,8 +790,8 @@ MonoBehaviour:
     shadowRadiusZMultiplier: 0.55
     shadowOffsetX: 0.12
     shadowOffsetZ: -0.08
-  deadTreeMaterial: {fileID: 0}
-  deadTreeShadowMaterial: {fileID: 0}
+  deadTreeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
+  deadTreeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
   seed: 3
   arenaHeightMultiplier: 4
   resourceHeightMultiplier: 20
