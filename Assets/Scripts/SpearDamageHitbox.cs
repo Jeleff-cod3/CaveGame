@@ -5,7 +5,7 @@ public class SpearDamageHitbox : MonoBehaviour
 {
     [SerializeField] private PickupableWeapon weapon;
 
-    private readonly HashSet<EnemyHealth> damagedEnemies = new HashSet<EnemyHealth>();
+    private readonly HashSet<Component> damagedTargets = new HashSet<Component>();
     private Collider hitboxCollider;
     private bool canDamage;
 
@@ -27,7 +27,7 @@ public class SpearDamageHitbox : MonoBehaviour
 
     public void StartDamageWindow()
     {
-        damagedEnemies.Clear();
+        damagedTargets.Clear();
         canDamage = true;
 
         if (hitboxCollider != null)
@@ -45,7 +45,7 @@ public class SpearDamageHitbox : MonoBehaviour
             hitboxCollider.enabled = false;
         }
 
-        damagedEnemies.Clear();
+        damagedTargets.Clear();
     }
 
     private void OnTriggerEnter(Collider other)
@@ -55,26 +55,31 @@ public class SpearDamageHitbox : MonoBehaviour
             return;
         }
 
-        EnemyHealth enemyHealth = other.GetComponent<EnemyHealth>();
+        Component damageableComponent = other.GetComponent(typeof(IDamageable)) as Component;
 
-        if (enemyHealth == null)
+        if (damageableComponent == null)
         {
-            enemyHealth = other.GetComponentInParent<EnemyHealth>();
+            damageableComponent = other.GetComponentInParent(typeof(IDamageable)) as Component;
         }
 
-        if (enemyHealth == null)
-        {
-            return;
-        }
-
-        if (damagedEnemies.Contains(enemyHealth))
+        if (damageableComponent == null || damageableComponent.transform.IsChildOf(weapon.transform))
         {
             return;
         }
 
-        damagedEnemies.Add(enemyHealth);
-        enemyHealth.TakeDamage(weapon.Damage);
+        if (damagedTargets.Contains(damageableComponent))
+        {
+            return;
+        }
 
-        Debug.Log($"Spear tip hit {enemyHealth.name} for {weapon.Damage} damage.");
+        if (!(damageableComponent is IDamageable damageable))
+        {
+            return;
+        }
+
+        damagedTargets.Add(damageableComponent);
+        damageable.TakeDamage(weapon.Damage);
+
+        Debug.Log($"Spear tip hit {damageableComponent.name} for {weapon.Damage} damage.");
     }
 }

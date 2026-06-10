@@ -21,6 +21,8 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] private float thrustForwardTime = 0.08f;
     [SerializeField] private float thrustReturnTime = 0.18f;
     [SerializeField] private SpearDamageHitbox tipHitbox;
+    [SerializeField] private float meleeHitRadius = 0.3f;
+    [SerializeField] private LayerMask meleeHitLayers = ~0;
 
     [Header("Throw Physics")]
     [SerializeField] private Transform spearTip;
@@ -51,6 +53,7 @@ public class PickupableWeapon : MonoBehaviour
     private Vector3 throwVelocity;
     private Vector3 previousTipPosition;
     private float thrownTimer;
+    private readonly System.Collections.Generic.HashSet<Component> damagedMeleeTargets = new System.Collections.Generic.HashSet<Component>();
 
     public int Damage => damage;
     public float AttackCooldown => attackCooldown;
@@ -150,6 +153,7 @@ public class PickupableWeapon : MonoBehaviour
     {
         heldLocalPosition = transform.localPosition;
         heldLocalRotation = transform.localRotation;
+        damagedMeleeTargets.Clear();
 
         Vector3 startPosition = heldLocalPosition;
         Vector3 endPosition = heldLocalPosition + Vector3.forward * thrustDistance;
@@ -157,6 +161,10 @@ public class PickupableWeapon : MonoBehaviour
         if (tipHitbox != null)
         {
             tipHitbox.StartDamageWindow();
+        }
+        else
+        {
+            previousTipPosition = spearTip.position;
         }
 
         float timer = 0f;
@@ -166,6 +174,7 @@ public class PickupableWeapon : MonoBehaviour
             timer += Time.deltaTime;
             float t = Mathf.Clamp01(timer / thrustForwardTime);
             transform.localPosition = Vector3.Lerp(startPosition, endPosition, t);
+            TryApplyFallbackMeleeDamage();
             yield return null;
         }
 
@@ -176,6 +185,7 @@ public class PickupableWeapon : MonoBehaviour
             timer += Time.deltaTime;
             float t = Mathf.Clamp01(timer / thrustReturnTime);
             transform.localPosition = Vector3.Lerp(endPosition, startPosition, t);
+            TryApplyFallbackMeleeDamage();
             yield return null;
         }
 
@@ -184,6 +194,86 @@ public class PickupableWeapon : MonoBehaviour
 
         StopTipDamage();
         attackRoutine = null;
+    }
+
+    private void TryApplyFallbackMeleeDamage()
+    {
+        if (tipHitbox != null || spearTip == null)
+        {
+            return;
+        }
+
+        Vector3 currentTipPosition = spearTip.position;
+        Vector3 sweep = currentTipPosition - previousTipPosition;
+        float distance = sweep.magnitude;
+        int hitMask = meleeHitLayers.value != 0 ? meleeHitLayers.value : Physics.DefaultRaycastLayers;
+
+        if (distance <= 0.001f)
+        {
+            Collider[] overlaps = Physics.OverlapSphere(
+                currentTipPosition,
+                meleeHitRadius,
+                hitMask,
+                QueryTriggerInteraction.Ignore
+            );
+
+            foreach (Collider overlap in overlaps)
+            {
+                TryDamageTarget(overlap);
+            }
+        }
+        else
+        {
+            RaycastHit[] hits = Physics.SphereCastAll(
+                previousTipPosition,
+                meleeHitRadius,
+                sweep.normalized,
+                distance,
+                hitMask,
+                QueryTriggerInteraction.Ignore
+            );
+
+            foreach (RaycastHit hit in hits)
+            {
+                TryDamageTarget(hit.collider);
+            }
+        }
+
+        previousTipPosition = currentTipPosition;
+    }
+
+    private void TryDamageTarget(Collider targetCollider)
+    {
+        if (targetCollider == null)
+        {
+            return;
+        }
+
+        Component damageableComponent = targetCollider.GetComponent(typeof(IDamageable)) as Component;
+
+        if (damageableComponent == null)
+        {
+            damageableComponent = targetCollider.GetComponentInParent(typeof(IDamageable)) as Component;
+        }
+
+        if (damageableComponent == null || damageableComponent.transform.IsChildOf(transform))
+        {
+            return;
+        }
+
+        if (!(damageableComponent is IDamageable damageable))
+        {
+            return;
+        }
+
+        if (damagedMeleeTargets.Contains(damageableComponent))
+        {
+            return;
+        }
+
+        damagedMeleeTargets.Add(damageableComponent);
+        damageable.TakeDamage(damage);
+        Debug.Log($"Fallback melee hit {damageableComponent.name} for {damage} damage.");
     }
 
     public void Throw(Vector3 direction)

@@ -63,19 +63,21 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         }
     }
 
-    public void ApplyNetworkHealth(int newCurrentHealth, int newMaxHealth)
+    public void ApplyNetworkHealth(int newCurrentHealth, int newMaxHealth, int reportedDamage = 0)
     {
+        int previousHealth = currentHealth;
+        int previousMaxHealth = maxHealth;
         maxHealth = Mathf.Max(1, newMaxHealth);
         int clampedHealth = Mathf.Clamp(newCurrentHealth, 0, maxHealth);
+        bool nextDead = clampedHealth <= 0;
 
-        if (currentHealth == clampedHealth && hasDied == (clampedHealth <= 0))
+        if (previousHealth == clampedHealth && previousMaxHealth == maxHealth && hasDied == nextDead)
         {
             return;
         }
 
         currentHealth = clampedHealth;
         HealthChanged?.Invoke(currentHealth, maxHealth);
-
         if (currentHealth <= 0)
         {
             Die();

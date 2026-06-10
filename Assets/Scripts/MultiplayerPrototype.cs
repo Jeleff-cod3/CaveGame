@@ -1446,7 +1446,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         pendingMammothState = null;
         TryConfigureMammothRuntime();
-        mammoth.ApplyNetworkHealth(mammothState.currentHealth, mammothState.maxHealth);
+        if (IsLocalMammothAuthority())
+        {
+            mammoth.ApplyNetworkHealth(mammothState.currentHealth, mammothState.maxHealth);
+        }
+        else
+        {
+            ApplyMammothHealthFallbackFromState(mammoth, mammothState.currentHealth, mammothState.maxHealth);
+        }
 
         if (IsLocalMammothAuthority())
         {
@@ -1479,7 +1486,26 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         pendingMammothHealth = null;
-        mammoth.ApplyNetworkHealth(mammothHealth.currentHealth, mammothHealth.maxHealth);
+        mammoth.ApplyNetworkHealth(mammothHealth.currentHealth, mammothHealth.maxHealth, mammothHealth.damage);
+    }
+
+    private static void ApplyMammothHealthFallbackFromState(EnemyHealth mammoth, int stateCurrentHealth, int stateMaxHealth)
+    {
+        if (mammoth == null)
+        {
+            return;
+        }
+
+        // Non-authority clients primarily rely on mammoth_health events.
+        // State snapshots are fallback-only so delayed packets cannot roll health backwards.
+        bool maxChanged = stateMaxHealth != mammoth.MaxHealth;
+        bool isLowerHealth = stateCurrentHealth < mammoth.CurrentHealth;
+        bool alreadyDead = mammoth.CurrentHealth <= 0 && stateCurrentHealth <= 0;
+
+        if (maxChanged || isLowerHealth || alreadyDead)
+        {
+            mammoth.ApplyNetworkHealth(stateCurrentHealth, stateMaxHealth);
+        }
     }
 
     private static EnemyHealth FindMammothEnemy()

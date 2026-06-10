@@ -119,19 +119,6 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!134 &59429148
-PhysicsMaterial:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: 
-  serializedVersion: 2
-  m_DynamicFriction: 0.6
-  m_StaticFriction: 0.6
-  m_Bounciness: 0
-  m_FrictionCombine: 0
-  m_BounceCombine: 0
 --- !u!1 &116420132 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 7393804371683279046, guid: 8a43c48af90f59d40bd59fcde6aca5ac, type: 3}
@@ -291,182 +278,6 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
---- !u!1 &230671569
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 230671575}
-  - component: {fileID: 230671574}
-  - component: {fileID: 230671573}
-  - component: {fileID: 230671572}
-  - component: {fileID: 230671571}
-  - component: {fileID: 230671570}
-  m_Layer: 0
-  m_Name: Spear
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &230671570
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c137af31461dec549af4ed7e4be93632, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::PickupableWeapon
-  damage: 10
-  attackCooldown: 0.6
-  thrustDistance: 0.9
-  thrustForwardTime: 0.08
-  thrustReturnTime: 0.18
-  tipHitbox: {fileID: 0}
-  spearTip: {fileID: 0}
-  throwSpeed: 18
-  throwUpwardBoost: 4.5
-  gravity: 22
-  tipCastRadius: 0.12
-  maxThrownLifetime: 6
-  stickableLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  groundLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  groundBreakChance: 0.5
-  stuckDepth: 0.25
-  alignSpearToVelocity: 1
---- !u!54 &230671571
-Rigidbody:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  serializedVersion: 5
-  m_Mass: 1
-  m_LinearDamping: 0
-  m_AngularDamping: 0.05
-  m_CenterOfMass: {x: 0, y: 0, z: 0}
-  m_InertiaTensor: {x: 1, y: 1, z: 1}
-  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ImplicitCom: 1
-  m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
-  m_Interpolate: 0
-  m_Constraints: 0
-  m_CollisionDetection: 0
---- !u!136 &230671572
-CapsuleCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  m_Material: {fileID: 59429148}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 2
-  m_Radius: 0.5000001
-  m_Height: 2
-  m_Direction: 1
-  m_Center: {x: 0.000000059604645, y: 0, z: -0.00000008940697}
---- !u!23 &230671573
-MeshRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 2
-  m_RayTraceProcedural: 0
-  m_RayTracingAccelStructBuildFlagsOverride: 0
-  m_RayTracingAccelStructBuildFlags: 1
-  m_SmallMeshCulling: 1
-  m_ForceMeshLod: -1
-  m_MeshLodSelectionBias: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 0
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 3
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_GlobalIlluminationMeshLod: 0
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_MaskInteraction: 0
-  m_AdditionalVertexStreams: {fileID: 0}
---- !u!33 &230671574
-MeshFilter:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
---- !u!4 &230671575
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230671569}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 770, y: 10, z: 510}
-  m_LocalScale: {x: 0.05, y: 0.4, z: 0.05}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &550010556
 GameObject:
   m_ObjectHideFlags: 0
@@ -718,7 +529,7 @@ Camera:
   m_ShutterSpeed: 0.005
   m_Aperture: 16
   m_FocusDistance: 10
-  m_FocalLength: 50
+  m_FocalLength: 20.78461
   m_BladeCount: 5
   m_Curvature: {x: 2, y: 11}
   m_BarrelClipping: 0.25
@@ -733,7 +544,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 60.000004
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -759,8 +570,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1316673185}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.38268343, y: 0, z: 0, w: 0.92387956}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: 0.0003666397, y: -0.9969481, z: 0.07792014, w: 0.004782403}
+  m_LocalPosition: {x: -22674.572, y: 2587.2463, z: 12498.264}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -884,6 +695,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0291e596cf8983a44af7fcf082eb3bc1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WorldChunkRenderer
+  groundLayerName: Ground
   navMeshSurface: {fileID: 0}
   buildNavMeshAtRuntime: 1
   rocksBlockNavigation: 1
@@ -906,14 +718,20 @@ MonoBehaviour:
     smallPatchScale: 15
     mediumInfluence: 0.58
     smallInfluence: 0.37
-    lightSand: {r: 0.49636567, g: 0.5283019, b: 0.11712353, a: 1}
-    dryYellow: {r: 0.54901963, g: 0.51432127, b: 0.19999997, a: 1}
-    orangeDirt: {r: 0.5019608, g: 0.386676, b: 0.17647056, a: 1}
-    paleGrass: {r: 0.6603774, g: 0.49204123, b: 0.17132434, a: 1}
+    arenaDust: {r: 0.76, g: 0.61, b: 0.27, a: 1}
+    arenaGold: {r: 0.92, g: 0.77, b: 0.24, a: 1}
+    arenaStraw: {r: 0.82, g: 0.73, b: 0.35, a: 1}
+    resourceMoss: {r: 0.24, g: 0.44, b: 0.16, a: 1}
+    resourceGrass: {r: 0.3, g: 0.58, b: 0.18, a: 1}
+    resourceBrightGrass: {r: 0.44, g: 0.7, b: 0.26, a: 1}
+    transitionOlive: {r: 0.48, g: 0.52, b: 0.22, a: 1}
+    transitionBrush: {r: 0.62, g: 0.58, b: 0.26, a: 1}
+    transitionEarth: {r: 0.54, g: 0.39, b: 0.19, a: 1}
     borderColor: {r: 0.6981132, g: 0.5752598, b: 0.2272161, a: 1}
     borderTintStrength: 0.18
-    arenaPaleness: 0.25
-    resourceGreenness: 0.08
+    arenaTintStrength: 0.72
+    resourceTintStrength: 0.82
+    transitionBlendStrength: 0.58
     heightDarkening: 0.33
   groundGrassSettings:
     enabled: 0
@@ -1027,6 +845,7 @@ MonoBehaviour:
     patchStrength: 1.2
     yOffset: 0.03
     maxSlopeAngle: 28
+    pineChance: 0.62
     minTrunkHeight1: 2
     maxTrunkHeight1: 3.5
     minTrunkRadius1: 0.08
@@ -1044,6 +863,9 @@ MonoBehaviour:
     trunkColor2: {r: 0.3, g: 0.18, b: 0.08, a: 1}
     leafColor2: {r: 0.12, g: 0.55, b: 0.12, a: 1}
     generateShadows: 1
+    shadowYOffset: 0.03
+    shadowOffsetX: 0.12
+    shadowOffsetZ: -0.16
   resourceForestTreeMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
   resourceForestTreeShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
   rockSettings:
@@ -1543,6 +1365,62 @@ PrefabInstance:
       insertIndex: -1
       addedObject: {fileID: 1754914267}
   m_SourcePrefab: {fileID: 100100000, guid: 6d5c33ada03632c4b969ecff0bfaf969, type: 3}
+--- !u!1 &2115401100
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2115401101}
+  - component: {fileID: 2115401102}
+  m_Layer: 0
+  m_Name: Spear Test Spawner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2115401101
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2115401100}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2115401102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2115401100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1bf9f4c2744fcbd499c9bf2021ee426c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpearTestSpawner
+  spearPrefab: {fileID: 1716549763528007691, guid: 86eea1bb0035dad4dbaece6c3416c92f, type: 3}
+  spearCount: 5
+  spacing: 1.5
+  startOffset: {x: -3, y: 0, z: 2}
+  groundLayer:
+    serializedVersion: 2
+    m_Bits: 257
+  raycastHeight: 300
+  spearHeightAboveGround: 0.75
+  spawnDelayFrames: 3
+  playerSearchTimeout: 8
+  playerSearchInterval: 0.2
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -1555,4 +1433,4 @@ SceneRoots:
   - {fileID: 2078932839}
   - {fileID: 1630489984}
   - {fileID: 133414973}
-  - {fileID: 230671575}
+  - {fileID: 2115401101}
