@@ -24,11 +24,13 @@ public class NavMeshWASDMovement : MonoBehaviour
     private Rigidbody rb;
     private bool isIdle;
     private float nextNavMeshRecoverTime;
+    private PlayerMouseAim mouseAim;
 
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         rb = GetComponent<Rigidbody>();
+        mouseAim = GetComponent<PlayerMouseAim>();
 
         if (agent != null && agent.enabled)
         {
@@ -100,7 +102,25 @@ public class NavMeshWASDMovement : MonoBehaviour
 
     private void HandleMovement()
     {
+        if (mouseAim == null)
+        {
+            mouseAim = GetComponent<PlayerMouseAim>();
+        }
+
+        bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
         Vector3 inputDirection = GetInputDirection();
+
+        if (isAimLocked)
+        {
+            EnterIdleState();
+
+            if (mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
+            {
+                RotateTowards(aimDirection);
+            }
+
+            return;
+        }
 
         if (inputDirection.sqrMagnitude < 0.001f)
         {

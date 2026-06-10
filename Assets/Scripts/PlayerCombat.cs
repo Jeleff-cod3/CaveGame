@@ -6,14 +6,21 @@ public class PlayerCombat : MonoBehaviour
     private PlayerWeaponPickup weaponPickup;
     private Transform attackPoint;
     private LayerMask enemyLayer;
+    private PlayerMouseAim mouseAim;
 
     private float nextAttackTime;
+
+    private void Awake()
+    {
+        EnsureMouseAim();
+    }
 
     public void Initialize(PlayerWeaponPickup pickup, Transform point, LayerMask layer)
     {
         weaponPickup = pickup;
         attackPoint = point;
         enemyLayer = layer;
+        EnsureMouseAim();
     }
 
     private void Update()
@@ -64,8 +71,25 @@ public class PlayerCombat : MonoBehaviour
         }
 
         Vector3 throwDirection = transform.forward;
+        bool requireFrontHemisphere = mouseAim == null || !mouseAim.IsAimModifierPressed;
+
+        if (mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimedDirection, requireFrontHemisphere))
+        {
+            throwDirection = aimedDirection;
+        }
+
         weaponPickup.ThrowEquippedWeapon(throwDirection);
 
         Debug.Log("Spear thrown.");
+    }
+
+    private void EnsureMouseAim()
+    {
+        mouseAim = GetComponent<PlayerMouseAim>();
+
+        if (mouseAim == null)
+        {
+            mouseAim = gameObject.AddComponent<PlayerMouseAim>();
+        }
     }
 }

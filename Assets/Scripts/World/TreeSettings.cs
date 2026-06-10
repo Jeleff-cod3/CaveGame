@@ -10,13 +10,13 @@ public class TreeSettings
     public int spacing = 5;
 
     [Range(0f, 1f)]
-    public float arenaDensity = 0.08f;
+    public float arenaDensity = 0.04f;
 
     [Range(0f, 1f)]
-    public float transitionDensity = 0.22f;
+    public float transitionDensity = 0.18f;
 
     [Range(0f, 1f)]
-    public float resourceDensity = 0.38f;
+    public float resourceDensity = 0.32f;
 
     [Header("Patch Distribution")]
     public float largePatchScale = 110f;

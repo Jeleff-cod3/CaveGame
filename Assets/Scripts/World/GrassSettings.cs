@@ -10,7 +10,7 @@ public class GrassSettings
     public int spacing = 2;
 
     [Range(0f, 1f)]
-    public float arenaDensity = 0.35f;
+    public float arenaDensity = 0.2f;
     
     [Range(0f, 1f)]
     public float borderDensity = 0.22f;
@@ -19,7 +19,7 @@ public class GrassSettings
     public float transitionDensity = 0.55f;
 
     [Range(0f, 1f)]
-    public float resourceDensity = 0.85f;
+    public float resourceDensity = 0.92f;
 
     [Header("Shape")]
     public float minHeight = 0.45f;
@@ -36,9 +36,9 @@ public class GrassSettings
     public float patchContrast = 0.65f;
 
     [Header("Colors")]
-    public Color dryGrass = new Color(0.72f, 0.67f, 0.28f);
-    public Color oliveGrass = new Color(0.39f, 0.55f, 0.22f);
-    public Color greenGrass = new Color(0.28f, 0.62f, 0.24f);
+    public Color dryGrass = new Color(0.84f, 0.77f, 0.30f);
+    public Color oliveGrass = new Color(0.38f, 0.57f, 0.20f);
+    public Color greenGrass = new Color(0.24f, 0.68f, 0.22f);
 
     [Header("Placement")]
     public float yOffset = 0.03f;

@@ -2277,6 +2277,7 @@ public sealed class LocalCubeController : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float jumpForce = 5f;
+    [SerializeField] private float aimRotationSpeed = 18f;
 
     [Header("Combat Setup")]
     [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.6f, 0.3f, 0.8f);
@@ -2287,6 +2288,7 @@ public sealed class LocalCubeController : MonoBehaviour
     private Transform cameraTransform;
     private bool isGrounded = true;
     private Vector3 previousPosition;
+    private PlayerMouseAim mouseAim;
 
     public Vector3 Velocity { get; private set; }
 
@@ -2299,6 +2301,7 @@ public sealed class LocalCubeController : MonoBehaviour
     {
         body = GetComponent<Rigidbody>();
         previousPosition = transform.position;
+        mouseAim = GetComponent<PlayerMouseAim>();
 
         SetupCombat();
     }
@@ -2314,15 +2317,24 @@ public sealed class LocalCubeController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (mouseAim == null)
+        {
+            mouseAim = GetComponent<PlayerMouseAim>();
+        }
+
         Keyboard keyboard = Keyboard.current;
         Vector2 input = Vector2.zero;
+        bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
 
         if (keyboard != null)
         {
-            if (keyboard.wKey.isPressed) input.y += 1f;
-            if (keyboard.sKey.isPressed) input.y -= 1f;
-            if (keyboard.dKey.isPressed) input.x += 1f;
-            if (keyboard.aKey.isPressed) input.x -= 1f;
+            if (!isAimLocked)
+            {
+                if (keyboard.wKey.isPressed) input.y += 1f;
+                if (keyboard.sKey.isPressed) input.y -= 1f;
+                if (keyboard.dKey.isPressed) input.x += 1f;
+                if (keyboard.aKey.isPressed) input.x -= 1f;
+            }
 
             if (keyboard.spaceKey.wasPressedThisFrame && isGrounded)
             {
@@ -2340,7 +2352,18 @@ public sealed class LocalCubeController : MonoBehaviour
 
         body.MovePosition(body.position + movement * moveSpeed * Time.fixedDeltaTime);
 
-        if (movement.sqrMagnitude > 0.001f)
+        if (isAimLocked && mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(aimDirection, Vector3.up);
+            body.MoveRotation(
+                Quaternion.Slerp(
+                    body.rotation,
+                    targetRotation,
+                    aimRotationSpeed * Time.fixedDeltaTime
+                )
+            );
+        }
+        else if (movement.sqrMagnitude > 0.001f)
         {
             body.MoveRotation(Quaternion.LookRotation(movement));
         }
@@ -2381,6 +2404,16 @@ public sealed class LocalCubeController : MonoBehaviour
         if (weaponPickup == null)
         {
             weaponPickup = gameObject.AddComponent<PlayerWeaponPickup>();
+        }
+
+        if (mouseAim == null)
+        {
+            mouseAim = GetComponent<PlayerMouseAim>();
+        }
+
+        if (mouseAim == null)
+        {
+            mouseAim = gameObject.AddComponent<PlayerMouseAim>();
         }
 
         weaponPickup.Initialize(weaponHolder);
