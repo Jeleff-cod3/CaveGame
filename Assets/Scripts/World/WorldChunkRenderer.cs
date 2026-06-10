@@ -5,6 +5,9 @@ using UnityEngine.AI;
 
 public class WorldChunkRenderer : MonoBehaviour
 {
+    [Header("Collision Layers")]
+    public string groundLayerName = "Ground";
+
     [Header("Navigation")]
     public NavMeshSurface navMeshSurface;
     public bool buildNavMeshAtRuntime = true;
@@ -85,7 +88,15 @@ public class WorldChunkRenderer : MonoBehaviour
     private readonly Dictionary<Vector2Int, GameObject> activeChunks =
         new Dictionary<Vector2Int, GameObject>();
 
-    private Vector2Int currentPlayerChunk;
+    private readonly HashSet<Transform> trackedPlayers =
+        new HashSet<Transform>();
+
+    private readonly HashSet<Vector2Int> currentTrackedPlayerChunks =
+        new HashSet<Vector2Int>();
+
+    private readonly HashSet<Vector2Int> trackedPlayerChunkBuffer =
+        new HashSet<Vector2Int>();
+
     private GameObject caveInstance;
 
     private void Start()
@@ -105,8 +116,7 @@ public class WorldChunkRenderer : MonoBehaviour
         GenerateWorld();
         DebugWorldHeightRange();
         PlacePlayerAtArenaCenter();
-
-        currentPlayerChunk = GetPlayerChunkCoord();
+        SyncTrackedPlayerChunks();
 
         if (renderFullMapBeforeNavMeshBake)
         {
@@ -130,11 +140,9 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void Update()
     {
-        Vector2Int newPlayerChunk = GetPlayerChunkCoord();
-
-        if (newPlayerChunk != currentPlayerChunk)
+        if (HaveTrackedPlayerChunksChanged())
         {
-            currentPlayerChunk = newPlayerChunk;
+            SyncTrackedPlayerChunks();
 
             if (renderFullMapBeforeNavMeshBake)
             {
@@ -151,6 +159,37 @@ public class WorldChunkRenderer : MonoBehaviour
         }
 
         UpdateGroundGrassMaterial();
+    }
+
+    public void SetPrimaryPlayer(Transform playerTransform)
+    {
+        player = playerTransform;
+        RegisterTrackedPlayer(playerTransform);
+    }
+
+    public void RegisterTrackedPlayer(Transform playerTransform)
+    {
+        if (playerTransform == null)
+        {
+            return;
+        }
+
+        trackedPlayers.Add(playerTransform);
+    }
+
+    public void UnregisterTrackedPlayer(Transform playerTransform)
+    {
+        if (playerTransform == null)
+        {
+            return;
+        }
+
+        trackedPlayers.Remove(playerTransform);
+
+        if (player == playerTransform)
+        {
+            player = null;
+        }
     }
 
     private void GenerateWorld()
@@ -208,35 +247,33 @@ public class WorldChunkRenderer : MonoBehaviour
         Debug.Log("Runtime NavMesh built for generated world.");
     }
 
-    private Vector2Int GetPlayerChunkCoord()
+    private Vector2Int GetChunkCoord(Vector3 worldPosition)
     {
-        if (player == null)
-        {
-            return Vector2Int.zero;
-        }
-
-        int chunkX = Mathf.FloorToInt(player.position.x / chunkSize);
-        int chunkZ = Mathf.FloorToInt(player.position.z / chunkSize);
+        int chunkX = Mathf.FloorToInt(worldPosition.x / chunkSize);
+        int chunkZ = Mathf.FloorToInt(worldPosition.z / chunkSize);
 
         return new Vector2Int(chunkX, chunkZ);
     }
 
     private void UpdateVisibleChunks()
     {
-        Vector2Int playerChunk = GetPlayerChunkCoord();
+        GetTrackedPlayerChunks(trackedPlayerChunkBuffer);
 
-        for (int zOffset = -viewDistance; zOffset <= viewDistance; zOffset++)
+        foreach (Vector2Int playerChunk in trackedPlayerChunkBuffer)
         {
-            for (int xOffset = -viewDistance; xOffset <= viewDistance; xOffset++)
+            for (int zOffset = -viewDistance; zOffset <= viewDistance; zOffset++)
             {
-                Vector2Int chunkCoord = new Vector2Int(
-                    playerChunk.x + xOffset,
-                    playerChunk.y + zOffset
-                );
-
-                if (IsChunkInsideMap(chunkCoord) && !activeChunks.ContainsKey(chunkCoord))
+                for (int xOffset = -viewDistance; xOffset <= viewDistance; xOffset++)
                 {
-                    CreateChunk(chunkCoord);
+                    Vector2Int chunkCoord = new Vector2Int(
+                        playerChunk.x + xOffset,
+                        playerChunk.y + zOffset
+                    );
+
+                    if (IsChunkInsideMap(chunkCoord) && !activeChunks.ContainsKey(chunkCoord))
+                    {
+                        CreateChunk(chunkCoord);
+                    }
                 }
             }
         }
@@ -245,9 +282,7 @@ public class WorldChunkRenderer : MonoBehaviour
 
         foreach (Vector2Int coord in activeChunks.Keys)
         {
-            float distance = Vector2Int.Distance(coord, playerChunk);
-
-            if (distance > viewDistance + 1)
+            if (!IsChunkInRangeOfTrackedPlayers(coord, trackedPlayerChunkBuffer, viewDistance + 1))
             {
                 chunksToRemove.Add(coord);
             }
@@ -262,15 +297,86 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void UpdateChunkVisibilityOnly()
     {
-        Vector2Int playerChunk = GetPlayerChunkCoord();
+        GetTrackedPlayerChunks(trackedPlayerChunkBuffer);
 
         foreach (KeyValuePair<Vector2Int, GameObject> pair in activeChunks)
         {
-            float distance = Vector2Int.Distance(pair.Key, playerChunk);
-            bool shouldBeVisible = distance <= viewDistance + 1;
-
+            bool shouldBeVisible = IsChunkInRangeOfTrackedPlayers(
+                pair.Key,
+                trackedPlayerChunkBuffer,
+                viewDistance + 1
+            );
             SetChunkRenderersEnabled(pair.Value, shouldBeVisible);
         }
+    }
+
+    private bool HaveTrackedPlayerChunksChanged()
+    {
+        GetTrackedPlayerChunks(trackedPlayerChunkBuffer);
+        return !currentTrackedPlayerChunks.SetEquals(trackedPlayerChunkBuffer);
+    }
+
+    private void SyncTrackedPlayerChunks()
+    {
+        GetTrackedPlayerChunks(currentTrackedPlayerChunks);
+    }
+
+    private void GetTrackedPlayerChunks(HashSet<Vector2Int> chunkCoords)
+    {
+        chunkCoords.Clear();
+        CleanupTrackedPlayers();
+
+        if (player != null)
+        {
+            chunkCoords.Add(GetChunkCoord(player.position));
+        }
+
+        foreach (Transform trackedPlayer in trackedPlayers)
+        {
+            if (trackedPlayer == null || trackedPlayer == player)
+            {
+                continue;
+            }
+
+            chunkCoords.Add(GetChunkCoord(trackedPlayer.position));
+        }
+
+        if (chunkCoords.Count == 0)
+        {
+            chunkCoords.Add(Vector2Int.zero);
+        }
+    }
+
+    private void CleanupTrackedPlayers()
+    {
+        trackedPlayers.RemoveWhere(trackedPlayer => trackedPlayer == null);
+
+        if (player == null)
+        {
+            return;
+        }
+
+        if (!player.gameObject.scene.IsValid())
+        {
+            player = null;
+        }
+    }
+
+    private static bool IsChunkInRangeOfTrackedPlayers(
+        Vector2Int chunkCoord,
+        IEnumerable<Vector2Int> playerChunks,
+        float maxDistance
+    )
+    {
+        foreach (Vector2Int playerChunk in playerChunks)
+        {
+            if (Vector2Int.Distance(chunkCoord, playerChunk) <= maxDistance)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void SetChunkRenderersEnabled(GameObject chunkObject, bool enabled)
@@ -300,6 +406,16 @@ public class WorldChunkRenderer : MonoBehaviour
         int startZ = chunkCoord.y * chunkSize;
 
         GameObject chunkObject = new GameObject($"Chunk {chunkCoord.x}, {chunkCoord.y}");
+        int terrainLayer = LayerMask.NameToLayer(groundLayerName);
+
+        if (terrainLayer >= 0)
+        {
+            chunkObject.layer = terrainLayer;
+        }
+        else
+        {
+            Debug.LogWarning($"Layer '{groundLayerName}' does not exist. Create it in Project Settings > Tags and Layers.");
+        }
         chunkObject.transform.SetParent(transform, false);
         chunkObject.transform.localPosition = new Vector3(startX, 0f, startZ);
         chunkObject.transform.localRotation = Quaternion.identity;
@@ -355,12 +471,31 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void UpdateGroundGrassMaterial()
     {
-        if (groundGrassMaterial == null || player == null || groundGrassSettings == null)
+        if (groundGrassMaterial == null || groundGrassSettings == null)
         {
             return;
         }
 
-        groundGrassMaterial.SetVector("_PlayerPosition", player.position);
+        Transform grassPlayer = player;
+
+        if (grassPlayer == null)
+        {
+            foreach (Transform trackedPlayer in trackedPlayers)
+            {
+                if (trackedPlayer != null)
+                {
+                    grassPlayer = trackedPlayer;
+                    break;
+                }
+            }
+        }
+
+        if (grassPlayer == null)
+        {
+            return;
+        }
+
+        groundGrassMaterial.SetVector("_PlayerPosition", grassPlayer.position);
 
         groundGrassMaterial.SetFloat("_WindStrength", groundGrassSettings.windStrength);
         groundGrassMaterial.SetFloat("_WindSpeed", groundGrassSettings.windSpeed);

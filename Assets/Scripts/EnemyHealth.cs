@@ -7,16 +7,21 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     private int currentHealth;
     private bool hasDied;
+    private MammothState mammothState;
+    private MammothPersonality mammothPersonality;
 
     public event Action<int, int> HealthChanged;
 
-    public int MaxHealth => maxHealth;
     public int CurrentHealth => currentHealth;
+    public int MaxHealth => maxHealth;
     public float HealthPercent => maxHealth <= 0 ? 0f : Mathf.Clamp01((float)currentHealth / maxHealth);
+    public bool IsDead => currentHealth <= 0;
 
     private void Awake()
     {
         currentHealth = maxHealth;
+        mammothState = GetComponent<MammothState>();
+        mammothPersonality = GetComponent<MammothPersonality>();
         HealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
@@ -27,7 +32,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     public void TakeDamage(int damage)
     {
-        if (currentHealth <= 0)
+        if (IsDead)
         {
             return;
         }
@@ -36,7 +41,18 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         HealthChanged?.Invoke(currentHealth, maxHealth);
         MultiplayerPrototype.NotifyEnemyDamaged(this, damage);
 
-        Debug.Log($"{gameObject.name} took {damage} damage. HP: {currentHealth}");
+        if (mammothState != null)
+        {
+            mammothState.MarkDamaged();
+        }
+
+        if (mammothPersonality != null)
+        {
+            mammothPersonality.AddAnger(0.18f);
+            mammothPersonality.AddFear(0.08f);
+        }
+
+        Debug.Log($"{gameObject.name} took {damage} damage. HP: {currentHealth}/{maxHealth}");
 
         if (currentHealth <= 0)
         {

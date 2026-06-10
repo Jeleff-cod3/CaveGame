@@ -97,6 +97,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private readonly List<LobbySlotView> lobbySlotViews = new List<LobbySlotView>();
 
     private GameObject worldRoot;
+    private WorldChunkRenderer worldChunkRenderer;
     private LocalCubeController localCube;
     private readonly Dictionary<string, RemoteCubeController> remoteCubes = new Dictionary<string, RemoteCubeController>();
     private readonly Dictionary<string, int> playerSlotsById = new Dictionary<string, int>();
@@ -259,6 +260,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         isShuttingDown = true;
         suppressLobbyReconnect = true;
+        DetachWorldChunkRendererPlayers();
         lobbySocket?.Close();
         gameSocket?.Close();
         if (ReferenceEquals(Instance, this))
@@ -676,6 +678,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void BuildGameWorld()
     {
+        DetachWorldChunkRendererPlayers();
+
         if (worldRoot != null)
         {
             Destroy(worldRoot);
@@ -683,6 +687,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         remoteCubes.Clear();
         worldRoot = new GameObject("Multiplayer Runtime World");
+        worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
         runtimeSpawnAnchor = ResolveRuntimeSpawnAnchor();
 
         GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -727,6 +732,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         GameObject local = CreatePlayerCube("Local Player Cube", spawn, GetPlayerColor(localKey), true);
         localCube = local.GetComponent<LocalCubeController>();
         localCube.Setup(camera.transform);
+        RegisterWorldChunkRendererPlayer(localCube.transform, true);
     }
 
     private void PreSpawnRemotePlayers(GameStartedDto start)
@@ -763,6 +769,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             );
             RemoteCubeController remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[key] = remote;
+            RegisterWorldChunkRendererPlayer(remote.transform, false);
             remoteStatesSpawned++;
             NetLog($"Pre-spawned remote cube key={key}, slot={player.slot}, userId={player.userId}, pos={remoteObject.transform.position}");
         }
@@ -996,6 +1003,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             );
             remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[remoteKey] = remote;
+            RegisterWorldChunkRendererPlayer(remote.transform, false);
             remoteStatesSpawned++;
             if (logRemoteStateDecisions)
             {
@@ -1085,8 +1093,56 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
+        worldChunkRenderer?.UnregisterTrackedPlayer(remote.transform);
         Destroy(remote.gameObject);
         remoteCubes.Remove(playerId);
+    }
+
+    private void RegisterWorldChunkRendererPlayer(Transform playerTransform, bool isPrimaryPlayer)
+    {
+        if (playerTransform == null)
+        {
+            return;
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            return;
+        }
+
+        if (isPrimaryPlayer)
+        {
+            worldChunkRenderer.SetPrimaryPlayer(playerTransform);
+            return;
+        }
+
+        worldChunkRenderer.RegisterTrackedPlayer(playerTransform);
+    }
+
+    private void DetachWorldChunkRendererPlayers()
+    {
+        if (worldChunkRenderer == null)
+        {
+            return;
+        }
+
+        if (localCube != null)
+        {
+            worldChunkRenderer.UnregisterTrackedPlayer(localCube.transform);
+        }
+
+        foreach (RemoteCubeController remote in remoteCubes.Values)
+        {
+            if (remote != null)
+            {
+                worldChunkRenderer.UnregisterTrackedPlayer(remote.transform);
+            }
+        }
     }
 
     private string GetLocalPlayerId()
@@ -2345,7 +2401,16 @@ public sealed class LocalCubeController : MonoBehaviour
 
         combat.Initialize(weaponPickup, attackPoint, enemyLayerMask);
 
-        Debug.Log("Combat setup added to local multiplayer player.");
+        PlayerHealth health = GetComponent<PlayerHealth>();
+
+        if (health == null)
+        {
+            health = gameObject.AddComponent<PlayerHealth>();
+        }
+
+        gameObject.tag = "Player";
+
+        Debug.Log("Combat setup added to local multiplayer player with PlayerHealth.");
     }
 
     private Transform CreateChildIfMissing(string childName, Vector3 localPosition)

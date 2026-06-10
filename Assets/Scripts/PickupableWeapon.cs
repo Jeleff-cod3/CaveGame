@@ -27,7 +27,7 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] private float throwSpeed = 18f;
     [SerializeField] private float throwUpwardBoost = 4.5f;
     [SerializeField] private float gravity = 22f;
-    [SerializeField] private float tipCastRadius = 0.12f;
+    [SerializeField] private float tipCastRadius = 0.18f;
     [SerializeField] private float maxThrownLifetime = 6f;
 
     [Header("Sticking")]
@@ -98,11 +98,8 @@ public class PickupableWeapon : MonoBehaviour
 
         state = SpearState.Held;
 
-        if (attackRoutine != null)
-        {
-            StopCoroutine(attackRoutine);
-            attackRoutine = null;
-        }
+        StopAttackRoutine();
+        StopTipDamage();
 
         transform.SetParent(weaponHolder);
         transform.localPosition = Vector3.zero;
@@ -111,23 +108,12 @@ public class PickupableWeapon : MonoBehaviour
         heldLocalPosition = transform.localPosition;
         heldLocalRotation = transform.localRotation;
 
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.useGravity = false;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
+        FreezeRigidbody();
 
         if (mainCollider != null)
         {
             mainCollider.enabled = false;
             mainCollider.isTrigger = false;
-        }
-
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
         }
     }
 
@@ -138,18 +124,8 @@ public class PickupableWeapon : MonoBehaviour
             return;
         }
 
-        state = SpearState.World;
-
-        if (attackRoutine != null)
-        {
-            StopCoroutine(attackRoutine);
-            attackRoutine = null;
-        }
-
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
-        }
+        StopAttackRoutine();
+        StopTipDamage();
 
         transform.SetParent(null);
         SetupWorldPhysics();
@@ -188,7 +164,7 @@ public class PickupableWeapon : MonoBehaviour
         while (timer < thrustForwardTime)
         {
             timer += Time.deltaTime;
-            float t = timer / thrustForwardTime;
+            float t = Mathf.Clamp01(timer / thrustForwardTime);
             transform.localPosition = Vector3.Lerp(startPosition, endPosition, t);
             yield return null;
         }
@@ -198,7 +174,7 @@ public class PickupableWeapon : MonoBehaviour
         while (timer < thrustReturnTime)
         {
             timer += Time.deltaTime;
-            float t = timer / thrustReturnTime;
+            float t = Mathf.Clamp01(timer / thrustReturnTime);
             transform.localPosition = Vector3.Lerp(endPosition, startPosition, t);
             yield return null;
         }
@@ -206,11 +182,7 @@ public class PickupableWeapon : MonoBehaviour
         transform.localPosition = startPosition;
         transform.localRotation = heldLocalRotation;
 
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
-        }
-
+        StopTipDamage();
         attackRoutine = null;
     }
 
@@ -221,37 +193,28 @@ public class PickupableWeapon : MonoBehaviour
             return;
         }
 
+        if (direction.sqrMagnitude < 0.001f)
+        {
+            direction = transform.forward;
+        }
+
         state = SpearState.Thrown;
 
-        if (attackRoutine != null)
-        {
-            StopCoroutine(attackRoutine);
-            attackRoutine = null;
-        }
-
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
-        }
+        StopAttackRoutine();
+        StopTipDamage();
 
         transform.SetParent(null);
-
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.useGravity = false;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
+        FreezeRigidbody();
 
         if (mainCollider != null)
         {
             mainCollider.enabled = false;
         }
 
-        Vector3 flatDirection = direction.normalized;
+        Vector3 throwDirection = direction.normalized;
+
         throwStartPosition = transform.position;
-        throwVelocity = flatDirection * throwSpeed + Vector3.up * throwUpwardBoost;
+        throwVelocity = throwDirection * throwSpeed + Vector3.up * throwUpwardBoost;
         previousTipPosition = spearTip.position;
         thrownTimer = 0f;
 
@@ -267,7 +230,8 @@ public class PickupableWeapon : MonoBehaviour
 
         if (thrownTimer > maxThrownLifetime)
         {
-            LandWithoutBreaking();
+            Debug.LogWarning("Spear lifetime ended without hitting anything.");
+            SetupWorldPhysics();
             return;
         }
 
@@ -313,15 +277,21 @@ public class PickupableWeapon : MonoBehaviour
             return false;
         }
 
-        RaycastHit hit;
+        int mask = stickableLayers.value;
+
+        if (mask == 0)
+        {
+            mask = Physics.DefaultRaycastLayers;
+            Debug.LogWarning("Stickable Layers is empty. Using DefaultRaycastLayers.");
+        }
 
         bool didHit = Physics.SphereCast(
             from,
             tipCastRadius,
             move.normalized,
-            out hit,
+            out RaycastHit hit,
             distance,
-            stickableLayers,
+            mask,
             QueryTriggerInteraction.Ignore
         );
 
@@ -329,6 +299,8 @@ public class PickupableWeapon : MonoBehaviour
         {
             return false;
         }
+
+        Debug.Log($"Spear hit {hit.collider.name} on layer {LayerMask.LayerToName(hit.collider.gameObject.layer)}");
 
         HandleSpearHit(hit, velocity);
         return true;
@@ -343,7 +315,7 @@ public class PickupableWeapon : MonoBehaviour
             damageable = hit.collider.GetComponentInParent<IDamageable>();
         }
 
-        bool hitGround = IsInLayerMask(hit.collider.gameObject.layer, groundLayers);
+        bool hitGround = IsGroundHit(hit.collider);
 
         if (damageable != null)
         {
@@ -370,25 +342,46 @@ public class PickupableWeapon : MonoBehaviour
         StickIntoGround(hit, velocity);
     }
 
+    private bool IsGroundHit(Collider hitCollider)
+    {
+        if (hitCollider == null)
+        {
+            return false;
+        }
+
+        if (IsInLayerMask(hitCollider.gameObject.layer, groundLayers))
+        {
+            return true;
+        }
+
+        if (hitCollider.GetComponent<MeshCollider>() != null)
+        {
+            return true;
+        }
+
+        if (hitCollider.gameObject.name.StartsWith("Chunk"))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private void StickIntoTarget(RaycastHit hit, Vector3 velocity)
     {
         state = SpearState.Stuck;
+
+        Vector3 direction = GetSafeVelocityDirection(velocity);
+        Vector3 stickPosition = hit.point - direction * stuckDepth;
+
+        transform.position = stickPosition;
+        transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
 
         Transform stickParent = hit.collider.attachedRigidbody != null
             ? hit.collider.attachedRigidbody.transform
             : hit.collider.transform;
 
-        Vector3 stickPosition = hit.point - velocity.normalized * stuckDepth;
-
-        transform.position = stickPosition;
-
-        if (velocity.sqrMagnitude > 0.01f)
-        {
-            transform.rotation = Quaternion.LookRotation(velocity.normalized, Vector3.up);
-        }
-
         transform.SetParent(stickParent, true);
-
         FreezeAsStuckPickup();
     }
 
@@ -396,14 +389,11 @@ public class PickupableWeapon : MonoBehaviour
     {
         state = SpearState.Stuck;
 
-        Vector3 stickPosition = hit.point - velocity.normalized * stuckDepth;
+        Vector3 direction = GetSafeVelocityDirection(velocity);
+        Vector3 stickPosition = hit.point - direction * stuckDepth;
 
         transform.position = stickPosition;
-
-        if (velocity.sqrMagnitude > 0.01f)
-        {
-            transform.rotation = Quaternion.LookRotation(velocity.normalized, Vector3.up);
-        }
+        transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
 
         transform.SetParent(null);
         FreezeAsStuckPickup();
@@ -415,43 +405,25 @@ public class PickupableWeapon : MonoBehaviour
     {
         state = SpearState.Broken;
 
+        transform.SetParent(null);
         transform.position = hit.point;
 
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.useGravity = false;
-        }
+        FreezeRigidbody();
 
         if (mainCollider != null)
         {
             mainCollider.enabled = false;
         }
 
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
-        }
+        StopTipDamage();
 
         Debug.Log("Spear broke after hitting the ground.");
         Destroy(gameObject, 1.5f);
     }
 
-    private void LandWithoutBreaking()
-    {
-        state = SpearState.World;
-        SetupWorldPhysics();
-    }
-
     private void FreezeAsStuckPickup()
     {
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.useGravity = false;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
+        FreezeRigidbody();
 
         if (mainCollider != null)
         {
@@ -459,19 +431,14 @@ public class PickupableWeapon : MonoBehaviour
             mainCollider.isTrigger = true;
         }
 
-        if (tipHitbox != null)
-        {
-            tipHitbox.StopDamageWindow();
-        }
+        StopTipDamage();
     }
 
     private void SetupWorldPhysics()
     {
-        if (rb != null)
-        {
-            rb.isKinematic = false;
-            rb.useGravity = true;
-        }
+        state = SpearState.World;
+
+        FreezeRigidbody();
 
         if (mainCollider != null)
         {
@@ -479,10 +446,53 @@ public class PickupableWeapon : MonoBehaviour
             mainCollider.isTrigger = true;
         }
 
+        StopTipDamage();
+    }
+
+    private void FreezeRigidbody()
+    {
+        if (rb == null)
+        {
+            return;
+        }
+
+        if (!rb.isKinematic)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        rb.isKinematic = true;
+        rb.useGravity = false;
+    }
+
+    private void StopAttackRoutine()
+    {
+        if (attackRoutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(attackRoutine);
+        attackRoutine = null;
+    }
+
+    private void StopTipDamage()
+    {
         if (tipHitbox != null)
         {
             tipHitbox.StopDamageWindow();
         }
+    }
+
+    private Vector3 GetSafeVelocityDirection(Vector3 velocity)
+    {
+        if (velocity.sqrMagnitude > 0.001f)
+        {
+            return velocity.normalized;
+        }
+
+        return transform.forward;
     }
 
     private bool IsInLayerMask(int layer, LayerMask mask)
