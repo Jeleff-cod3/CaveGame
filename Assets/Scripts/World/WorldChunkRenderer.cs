@@ -5,6 +5,9 @@ using UnityEngine.AI;
 
 public class WorldChunkRenderer : MonoBehaviour
 {
+    [Header("Collision Layers")]
+    public string groundLayerName = "Ground";
+
     [Header("Navigation")]
     public NavMeshSurface navMeshSurface;
     public bool buildNavMeshAtRuntime = true;
@@ -300,6 +303,16 @@ public class WorldChunkRenderer : MonoBehaviour
         int startZ = chunkCoord.y * chunkSize;
 
         GameObject chunkObject = new GameObject($"Chunk {chunkCoord.x}, {chunkCoord.y}");
+        int terrainLayer = LayerMask.NameToLayer(groundLayerName);
+
+        if (terrainLayer >= 0)
+        {
+            chunkObject.layer = terrainLayer;
+        }
+        else
+        {
+            Debug.LogWarning($"Layer '{groundLayerName}' does not exist. Create it in Project Settings > Tags and Layers.");
+        }
         chunkObject.transform.SetParent(transform, false);
         chunkObject.transform.localPosition = new Vector3(startX, 0f, startZ);
         chunkObject.transform.localRotation = Quaternion.identity;

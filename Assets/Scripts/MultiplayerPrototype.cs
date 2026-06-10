@@ -2257,7 +2257,16 @@ public sealed class LocalCubeController : MonoBehaviour
 
         combat.Initialize(weaponPickup, attackPoint, enemyLayerMask);
 
-        Debug.Log("Combat setup added to local multiplayer player.");
+        PlayerHealth health = GetComponent<PlayerHealth>();
+
+        if (health == null)
+        {
+            health = gameObject.AddComponent<PlayerHealth>();
+        }
+
+        gameObject.tag = "Player";
+
+        Debug.Log("Combat setup added to local multiplayer player with PlayerHealth.");
     }
 
     private Transform CreateChildIfMissing(string childName, Vector3 localPosition)

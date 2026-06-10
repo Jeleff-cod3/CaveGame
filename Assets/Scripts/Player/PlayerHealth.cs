@@ -1,12 +1,10 @@
 using UnityEngine;
 
-public class EnemyHealth : MonoBehaviour, IDamageable
+public class PlayerHealth : MonoBehaviour, IDamageable
 {
     [SerializeField] private int maxHealth = 100;
 
     private int currentHealth;
-    private MammothState mammothState;
-    private MammothPersonality mammothPersonality;
 
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
@@ -16,8 +14,6 @@ public class EnemyHealth : MonoBehaviour, IDamageable
     private void Awake()
     {
         currentHealth = maxHealth;
-        mammothState = GetComponent<MammothState>();
-        mammothPersonality = GetComponent<MammothPersonality>();
     }
 
     public void TakeDamage(int damage)
@@ -29,17 +25,6 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
         currentHealth = Mathf.Max(0, currentHealth - damage);
 
-        if (mammothState != null)
-        {
-            mammothState.MarkDamaged();
-        }
-
-        if (mammothPersonality != null)
-        {
-            mammothPersonality.AddAnger(0.18f);
-            mammothPersonality.AddFear(0.08f);
-        }
-
         Debug.Log($"{gameObject.name} took {damage} damage. HP: {currentHealth}/{maxHealth}");
 
         if (currentHealth <= 0)
@@ -48,9 +33,18 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         }
     }
 
+    public void Heal(int amount)
+    {
+        if (IsDead)
+        {
+            return;
+        }
+
+        currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+    }
+
     private void Die()
     {
-        Debug.Log($"{gameObject.name} died.");
-        Destroy(gameObject);
+        Debug.Log($"{gameObject.name} died. Respawn can be added later.");
     }
 }
