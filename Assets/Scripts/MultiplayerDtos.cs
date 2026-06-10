@@ -167,6 +167,7 @@ public sealed class RoomSnapshotDto
     public string type;
     public int lobbyId;
     public PlayerStateDto[] players;
+    public MammothStateDto mammothState;
     public MammothHealthDto mammothHealth;
 }
 
@@ -191,6 +192,41 @@ public sealed class MammothHealthDto
             currentHealth = enemyHealth != null ? enemyHealth.CurrentHealth : 0,
             maxHealth = enemyHealth != null ? enemyHealth.MaxHealth : 0,
             damage = Mathf.Max(0, damage),
+        };
+    }
+}
+
+[Serializable]
+public sealed class MammothStateDto
+{
+    public string type = "mammoth_state";
+    public int lobbyId;
+    public string enemyId = "mammoth";
+    public int authoritativeUserId;
+    public int currentHealth;
+    public int maxHealth;
+    public int damage;
+    public double serverTime;
+    public float[] position;
+    public float[] rotation;
+
+    public static MammothStateDto FromEnemyHealth(int lobbyId, int authoritativeUserId, EnemyHealth enemyHealth)
+    {
+        Transform enemyTransform = enemyHealth != null ? enemyHealth.transform : null;
+        Vector3 position = enemyTransform != null ? enemyTransform.position : Vector3.zero;
+        Vector3 rotation = enemyTransform != null ? enemyTransform.eulerAngles : Vector3.zero;
+
+        return new MammothStateDto
+        {
+            type = "mammoth_state",
+            lobbyId = lobbyId,
+            enemyId = "mammoth",
+            authoritativeUserId = authoritativeUserId,
+            currentHealth = enemyHealth != null ? enemyHealth.CurrentHealth : 0,
+            maxHealth = enemyHealth != null ? enemyHealth.MaxHealth : 0,
+            damage = 0,
+            position = MultiplayerJson.VectorToArray(position),
+            rotation = MultiplayerJson.VectorToArray(rotation),
         };
     }
 }

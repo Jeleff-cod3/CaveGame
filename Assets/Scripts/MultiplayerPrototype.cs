@@ -16,6 +16,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float ForcedStateSendInterval = 0.5f;
     private const float MinPositionDeltaSqr = 0.0004f;
     private const float MinRotationDelta = 1.5f;
+    private const float MammothStateSendInterval = 1f / 20f;
+    private const float MammothForcedStateSendInterval = 0.2f;
+    private const float MammothRemoteLerpSpeed = 10f;
     private const float LobbyPingInterval = 2f;
     private const float GamePingInterval = 1f;
     private const float LobbyHeartbeatTimeout = 8f;
@@ -102,7 +105,18 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private readonly Dictionary<string, RemoteCubeController> remoteCubes = new Dictionary<string, RemoteCubeController>();
     private readonly Dictionary<string, int> playerSlotsById = new Dictionary<string, int>();
     private Vector3 runtimeSpawnAnchor = Vector3.zero;
+    private MammothStateDto pendingMammothState;
     private MammothHealthDto pendingMammothHealth;
+    private EnemyHealth cachedMammothEnemy;
+    private bool mammothRuntimeConfigured;
+    private float nextMammothStateSendTime;
+    private float lastMammothStateSendTime;
+    private bool hasSentInitialMammothState;
+    private Vector3 lastSentMammothPosition;
+    private Vector3 lastSentMammothEulerAngles;
+    private Vector3 targetRemoteMammothPosition;
+    private Quaternion targetRemoteMammothRotation = Quaternion.identity;
+    private bool hasRemoteMammothPose;
 
     [Header("Networking Debug")]
     [SerializeField] private bool verboseNetworkingLogs = true;
@@ -175,6 +189,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lobbySocket?.Pump();
         gameSocket?.Pump();
 
+        TryConfigureMammothRuntime();
+        UpdateRemoteMammothPose();
+
+        if (pendingMammothState != null)
+        {
+            TryApplyMammothState(pendingMammothState);
+        }
+
         if (pendingMammothHealth != null)
         {
             TryApplyMammothHealth(pendingMammothHealth);
@@ -229,6 +251,12 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             );
             gameSocket.SendJson(JsonUtility.ToJson(state));
             MarkStateSent(Time.unscaledTime);
+        }
+
+        if (Time.unscaledTime >= nextMammothStateSendTime && ShouldSendMammothStateNow(Time.unscaledTime))
+        {
+            nextMammothStateSendTime = Time.unscaledTime + MammothStateSendInterval;
+            SendMammothStateUpdate();
         }
 
         if (Time.unscaledTime >= nextGamePingTime)
@@ -636,6 +664,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         NetLog("Entering game. " + DescribeGameStarted(start));
 
         BuildGameWorld();
+        TryApplyMammothState(pendingMammothState);
         TryApplyMammothHealth(pendingMammothHealth);
         PreSpawnRemotePlayers(start);
         OpenGameSocket(currentGameLobbyId);
@@ -935,10 +964,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                     ApplyRemoteState(player);
                 }
 
+                TryApplyMammothState(snapshot.mammothState);
                 TryApplyMammothHealth(snapshot.mammothHealth);
                 break;
             case "player_state":
                 ApplyRemoteState(JsonUtility.FromJson<PlayerStateDto>(json));
+                break;
+            case "mammoth_state":
+                TryApplyMammothState(JsonUtility.FromJson<MammothStateDto>(json));
                 break;
             case "mammoth_health":
                 TryApplyMammothHealth(JsonUtility.FromJson<MammothHealthDto>(json));
@@ -1204,6 +1237,161 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lastSentEulerAngles = localCube.transform.eulerAngles;
     }
 
+    private bool IsLocalMammothAuthority()
+    {
+        return gameStarted && ResolveLocalSpawnSlot() == 0;
+    }
+
+    private void TryConfigureMammothRuntime()
+    {
+        if (!gameStarted)
+        {
+            return;
+        }
+
+        EnemyHealth mammoth = GetCachedMammothEnemy();
+        if (mammoth == null)
+        {
+            mammothRuntimeConfigured = false;
+            return;
+        }
+
+        if (!mammothRuntimeConfigured)
+        {
+            SetMammothAuthorityMode(mammoth, IsLocalMammothAuthority());
+            mammothRuntimeConfigured = true;
+        }
+    }
+
+    private EnemyHealth GetCachedMammothEnemy()
+    {
+        if (cachedMammothEnemy != null)
+        {
+            return cachedMammothEnemy;
+        }
+
+        cachedMammothEnemy = FindMammothEnemy();
+        return cachedMammothEnemy;
+    }
+
+    private static void SetBehaviourEnabled<T>(Component root, bool isEnabled) where T : Behaviour
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        T behaviour = root.GetComponent<T>();
+        if (behaviour != null)
+        {
+            behaviour.enabled = isEnabled;
+        }
+    }
+
+    private static void SetMammothAuthorityMode(EnemyHealth mammoth, bool isAuthority)
+    {
+        if (mammoth == null)
+        {
+            return;
+        }
+
+        MammothMovement movement = mammoth.GetComponent<MammothMovement>();
+        if (!isAuthority && movement != null)
+        {
+            movement.Stop();
+        }
+
+        NavMeshAgent agent = mammoth.GetComponent<NavMeshAgent>();
+        if (agent != null)
+        {
+            if (!isAuthority && agent.enabled)
+            {
+                agent.ResetPath();
+                agent.velocity = Vector3.zero;
+            }
+
+            agent.enabled = isAuthority;
+        }
+
+        SetBehaviourEnabled<MammothBrain>(mammoth, isAuthority);
+        SetBehaviourEnabled<MammothActionController>(mammoth, isAuthority);
+        SetBehaviourEnabled<MammothCombat>(mammoth, isAuthority);
+        SetBehaviourEnabled<MammothSenses>(mammoth, isAuthority);
+        SetBehaviourEnabled<MammothMovement>(mammoth, isAuthority);
+    }
+
+    private bool ShouldSendMammothStateNow(float now)
+    {
+        if (!IsLocalMammothAuthority() || !gameStarted || gameSocket == null || !gameSocket.IsOpen)
+        {
+            return false;
+        }
+
+        EnemyHealth mammoth = GetCachedMammothEnemy();
+        if (mammoth == null || mammoth.IsDead)
+        {
+            return false;
+        }
+
+        if (!hasSentInitialMammothState)
+        {
+            return true;
+        }
+
+        if (now - lastMammothStateSendTime >= MammothForcedStateSendInterval)
+        {
+            return true;
+        }
+
+        Transform mammothTransform = mammoth.transform;
+        if ((mammothTransform.position - lastSentMammothPosition).sqrMagnitude >= MinPositionDeltaSqr)
+        {
+            return true;
+        }
+
+        return Quaternion.Angle(Quaternion.Euler(lastSentMammothEulerAngles), mammothTransform.rotation) >= MinRotationDelta;
+    }
+
+    private void SendMammothStateUpdate()
+    {
+        EnemyHealth mammoth = GetCachedMammothEnemy();
+        if (mammoth == null)
+        {
+            return;
+        }
+
+        MammothStateDto state = MammothStateDto.FromEnemyHealth(
+            currentGameLobbyId,
+            currentUser != null ? currentUser.id : 0,
+            mammoth
+        );
+        gameSocket.SendJson(JsonUtility.ToJson(state));
+
+        hasSentInitialMammothState = true;
+        lastMammothStateSendTime = Time.unscaledTime;
+        lastSentMammothPosition = mammoth.transform.position;
+        lastSentMammothEulerAngles = mammoth.transform.eulerAngles;
+    }
+
+    private void UpdateRemoteMammothPose()
+    {
+        if (IsLocalMammothAuthority() || !hasRemoteMammothPose)
+        {
+            return;
+        }
+
+        EnemyHealth mammoth = GetCachedMammothEnemy();
+        if (mammoth == null || mammoth.IsDead)
+        {
+            return;
+        }
+
+        float step = Mathf.Clamp01(Time.unscaledDeltaTime * MammothRemoteLerpSpeed);
+        Transform mammothTransform = mammoth.transform;
+        mammothTransform.position = Vector3.Lerp(mammothTransform.position, targetRemoteMammothPosition, step);
+        mammothTransform.rotation = Quaternion.Slerp(mammothTransform.rotation, targetRemoteMammothRotation, step);
+    }
+
     private void RefreshGameHud()
     {
         string rtt = lastGameRttMs >= 0f ? $"{lastGameRttMs:0} ms" : "measuring";
@@ -1242,6 +1430,40 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         gameSocket.SendJson(JsonUtility.ToJson(update));
     }
 
+    private void TryApplyMammothState(MammothStateDto mammothState)
+    {
+        if (mammothState == null)
+        {
+            return;
+        }
+
+        EnemyHealth mammoth = GetCachedMammothEnemy();
+        if (mammoth == null)
+        {
+            pendingMammothState = mammothState;
+            return;
+        }
+
+        pendingMammothState = null;
+        TryConfigureMammothRuntime();
+        mammoth.ApplyNetworkHealth(mammothState.currentHealth, mammothState.maxHealth);
+
+        if (IsLocalMammothAuthority())
+        {
+            return;
+        }
+
+        targetRemoteMammothPosition = MultiplayerJson.ArrayToVector(mammothState.position);
+        targetRemoteMammothRotation = Quaternion.Euler(MultiplayerJson.ArrayToVector(mammothState.rotation));
+        hasRemoteMammothPose = true;
+
+        Transform mammothTransform = mammoth.transform;
+        if ((mammothTransform.position - targetRemoteMammothPosition).sqrMagnitude > 100f)
+        {
+            mammothTransform.position = targetRemoteMammothPosition;
+        }
+    }
+
     private void TryApplyMammothHealth(MammothHealthDto mammothHealth)
     {
         if (mammothHealth == null)
@@ -1249,7 +1471,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
-        EnemyHealth mammoth = FindMammothEnemy();
+        EnemyHealth mammoth = GetCachedMammothEnemy();
         if (mammoth == null)
         {
             pendingMammothHealth = mammothHealth;
@@ -1294,6 +1516,16 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         hasSentInitialState = false;
         lastSentPosition = Vector3.zero;
         lastSentEulerAngles = Vector3.zero;
+        nextMammothStateSendTime = 0f;
+        lastMammothStateSendTime = 0f;
+        hasSentInitialMammothState = false;
+        lastSentMammothPosition = Vector3.zero;
+        lastSentMammothEulerAngles = Vector3.zero;
+        hasRemoteMammothPose = false;
+        targetRemoteMammothPosition = Vector3.zero;
+        targetRemoteMammothRotation = Quaternion.identity;
+        cachedMammothEnemy = null;
+        mammothRuntimeConfigured = false;
         nextGamePingTime = 0f;
         nextLobbyPingTime = 0f;
         nextHudRefreshTime = 0f;

@@ -1,6 +1,6 @@
 from math import isfinite
 
-from .message_types import MAMMOTH_HEALTH, PLAYER_STATE
+from .message_types import MAMMOTH_HEALTH, MAMMOTH_STATE, PLAYER_STATE
 
 
 def is_vec3(value) -> bool:
@@ -56,3 +56,31 @@ def is_valid_mammoth_health(data) -> bool:
         return False
 
     return current_health <= max_health
+
+
+def is_valid_mammoth_state(data) -> bool:
+    if data.get("type") != MAMMOTH_STATE:
+        return False
+
+    if not is_valid_mammoth_health(
+        {
+            "type": MAMMOTH_HEALTH,
+            "enemyId": data.get("enemyId", "mammoth"),
+            "currentHealth": data.get("currentHealth"),
+            "maxHealth": data.get("maxHealth"),
+            "damage": data.get("damage", 0),
+        }
+    ):
+        return False
+
+    if not is_vec3(data.get("position")):
+        return False
+
+    if not is_vec3(data.get("rotation")):
+        return False
+
+    authoritative_user_id = data.get("authoritativeUserId", 0)
+    if not isinstance(authoritative_user_id, int) or authoritative_user_id < 0:
+        return False
+
+    return True

@@ -47,9 +47,13 @@ class MammothRuntimeState:
     enemy_id: str = "mammoth"
     current_health: int = 100
     max_health: int = 100
+    authoritative_user_id: int = 0
+    position: list[float] = field(default_factory=lambda: [0, 0, 0])
+    rotation: list[float] = field(default_factory=lambda: [0, 0, 0])
+    health_initialized: bool = False
     last_updated: float = field(default_factory=time)
 
-    def apply_update(self, reported_current_health: int, reported_max_health: int, damage: int = 0) -> None:
+    def apply_health_update(self, reported_current_health: int, reported_max_health: int, damage: int = 0) -> None:
         self.max_health = max(1, int(reported_max_health))
 
         if damage > 0:
@@ -57,9 +61,28 @@ class MammothRuntimeState:
         else:
             self.current_health = max(0, min(int(reported_current_health), self.max_health))
 
+        self.health_initialized = True
         self.last_updated = time()
 
-    def as_payload(self, lobby_id: int) -> dict:
+    def apply_state_update(
+        self,
+        authoritative_user_id: int,
+        position: list[float],
+        rotation: list[float],
+        reported_current_health: int,
+        reported_max_health: int,
+    ) -> None:
+        self.authoritative_user_id = max(0, int(authoritative_user_id))
+        self.position = [float(position[0]), float(position[1]), float(position[2])]
+        self.rotation = [float(rotation[0]), float(rotation[1]), float(rotation[2])]
+        self.max_health = max(1, int(reported_max_health))
+
+        if not self.health_initialized:
+            self.current_health = max(0, min(int(reported_current_health), self.max_health))
+
+        self.last_updated = time()
+
+    def as_health_payload(self, lobby_id: int) -> dict:
         return {
             "type": "mammoth_health",
             "lobbyId": lobby_id,
@@ -67,6 +90,20 @@ class MammothRuntimeState:
             "currentHealth": self.current_health,
             "maxHealth": self.max_health,
             "damage": 0,
+            "serverTime": self.last_updated,
+        }
+
+    def as_state_payload(self, lobby_id: int) -> dict:
+        return {
+            "type": "mammoth_state",
+            "lobbyId": lobby_id,
+            "enemyId": self.enemy_id,
+            "authoritativeUserId": self.authoritative_user_id,
+            "currentHealth": self.current_health,
+            "maxHealth": self.max_health,
+            "damage": 0,
+            "position": self.position,
+            "rotation": self.rotation,
             "serverTime": self.last_updated,
         }
 
