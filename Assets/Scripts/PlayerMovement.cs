@@ -15,11 +15,13 @@ public class PlayerControllerLoose : MonoBehaviour
 
     private Vector3 currentVelocity = Vector3.zero; // for smoothing movement
     private Vector3 moveDirection = Vector3.zero;
+    private PlayerMouseAim mouseAim;
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
         rb.freezeRotation = true;
+        mouseAim = GetComponent<PlayerMouseAim>();
     }
 
     void Update()
@@ -30,6 +32,11 @@ public class PlayerControllerLoose : MonoBehaviour
 
     void HandleMovement()
     {
+        if (mouseAim == null)
+        {
+            mouseAim = GetComponent<PlayerMouseAim>();
+        }
+
         // Read WASD input
         Vector2 input = Vector2.zero;
         if (Keyboard.current.wKey.isPressed) input.y += 1;
@@ -37,7 +44,13 @@ public class PlayerControllerLoose : MonoBehaviour
         if (Keyboard.current.dKey.isPressed) input.x += 1;
         if (Keyboard.current.aKey.isPressed) input.x -= 1;
 
+        bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
         Vector3 targetDirection = new Vector3(input.x, 0f, input.y).normalized;
+
+        if (isAimLocked)
+        {
+            targetDirection = Vector3.zero;
+        }
 
         // Smoothly interpolate current move direction
         moveDirection = Vector3.SmoothDamp(moveDirection, targetDirection, ref currentVelocity, movementSmooth);
@@ -47,7 +60,12 @@ public class PlayerControllerLoose : MonoBehaviour
         rb.MovePosition(newPos);
 
         // Rotate toward movement smoothly if moving
-        if (moveDirection.sqrMagnitude > 0.01f)
+        if (isAimLocked && mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(aimDirection);
+            rb.rotation = Quaternion.Slerp(rb.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+        }
+        else if (moveDirection.sqrMagnitude > 0.01f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
             rb.rotation = Quaternion.Slerp(rb.rotation, targetRotation, rotationSpeed * Time.deltaTime);

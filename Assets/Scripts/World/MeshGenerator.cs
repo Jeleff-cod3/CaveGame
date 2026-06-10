@@ -128,58 +128,67 @@ public static class MeshGenerator
             settings.smallInfluence
         );
 
-        Color baseColor;
-
-        if (combinedNoise < 0.33f)
-        {
-            baseColor = Color.Lerp(
-                settings.lightSand,
-                settings.dryYellow,
-                combinedNoise / 0.33f
-            );
-        }
-        else if (combinedNoise < 0.66f)
-        {
-            baseColor = Color.Lerp(
-                settings.dryYellow,
-                settings.orangeDirt,
-                (combinedNoise - 0.33f) / 0.33f
-            );
-        }
-        else
-        {
-            baseColor = Color.Lerp(
-                settings.orangeDirt,
-                settings.paleGrass,
-                (combinedNoise - 0.66f) / 0.34f
-            );
-        }
-
         TerrainZone zone = worldData.GetZone(worldX, worldZ);
+        Color arenaColor = SamplePalette(
+            combinedNoise,
+            settings.arenaDust,
+            settings.arenaGold,
+            settings.arenaStraw
+        );
+        Color resourceColor = SamplePalette(
+            combinedNoise,
+            settings.resourceMoss,
+            settings.resourceGrass,
+            settings.resourceBrightGrass
+        );
+        Color transitionColor = SamplePalette(
+            combinedNoise,
+            settings.transitionEarth,
+            settings.transitionBrush,
+            settings.transitionOlive
+        );
+
+        Color baseColor;
 
         if (zone == TerrainZone.Arena)
         {
             baseColor = Color.Lerp(
-                baseColor,
-                settings.lightSand,
-                settings.arenaPaleness
+                transitionColor,
+                arenaColor,
+                settings.arenaTintStrength
             );
         }
         else if (zone == TerrainZone.Resource)
         {
             baseColor = Color.Lerp(
-                baseColor,
-                settings.paleGrass,
-                settings.resourceGreenness
+                transitionColor,
+                resourceColor,
+                settings.resourceTintStrength
+            );
+        }
+        else if (zone == TerrainZone.Transition)
+        {
+            baseColor = Color.Lerp(
+                arenaColor,
+                resourceColor,
+                Mathf.Lerp(
+                    settings.transitionBlendStrength * 0.55f,
+                    settings.transitionBlendStrength,
+                    mediumNoise
+                )
             );
         }
         else if (zone == TerrainZone.Border)
         {
             baseColor = Color.Lerp(
-                baseColor,
+                transitionColor,
                 settings.borderColor,
                 settings.borderTintStrength
             );
+        }
+        else
+        {
+            baseColor = transitionColor;
         }
 
         float height = worldData.GetHeight(worldX, worldZ);
@@ -193,5 +202,20 @@ public static class MeshGenerator
 
         baseColor.a = 1f;
         return baseColor;
+    }
+
+    private static Color SamplePalette(
+        float value,
+        Color low,
+        Color mid,
+        Color high
+    )
+    {
+        if (value < 0.5f)
+        {
+            return Color.Lerp(low, mid, value / 0.5f);
+        }
+
+        return Color.Lerp(mid, high, (value - 0.5f) / 0.5f);
     }
 }

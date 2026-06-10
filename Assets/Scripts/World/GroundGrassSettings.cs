@@ -17,13 +17,13 @@ public class GroundGrassSettings
 
     [Header("Zone Density")]
     [Range(0f, 1f)]
-    public float arenaDensity = 0.30f;
+    public float arenaDensity = 0.18f;
 
     [Range(0f, 1f)]
     public float transitionDensity = 0.72f;
 
     [Range(0f, 1f)]
-    public float resourceDensity = 0.76f;
+    public float resourceDensity = 0.9f;
 
     [Range(0f, 1f)]
     public float borderDensity = 0.98f;
@@ -62,10 +62,10 @@ public class GroundGrassSettings
     public float maxSlopeAngle = 32f;
 
     [Header("Colors")]
-    public Color dryGrass = new Color(0.62f, 0.54f, 0.22f);
-    public Color warmGrass = new Color(0.55f, 0.52f, 0.22f);
-    public Color oliveGrass = new Color(0.42f, 0.50f, 0.20f);
-    public Color lushGrass = new Color(0.48f, 0.56f, 0.23f);
+    public Color dryGrass = new Color(0.76f, 0.66f, 0.24f);
+    public Color warmGrass = new Color(0.68f, 0.63f, 0.25f);
+    public Color oliveGrass = new Color(0.33f, 0.52f, 0.18f);
+    public Color lushGrass = new Color(0.34f, 0.66f, 0.20f);
 
     public float colorNoiseScale = 34f;
 

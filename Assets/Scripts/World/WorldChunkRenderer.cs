@@ -589,6 +589,11 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void CreateResourceForestTreesForChunk(GameObject chunkObject, int startX, int startZ)
     {
+        if (resourceForestTreeSettings == null || !resourceForestTreeSettings.enabled)
+        {
+            return;
+        }
+
         var meshData = ResourceForestTreeChunkGenerator.GenerateTrees(
             worldData, startX, startZ, chunkSize, seed, resourceForestTreeSettings
         );
@@ -600,7 +605,9 @@ public class WorldChunkRenderer : MonoBehaviour
             var mf = treeObj.AddComponent<MeshFilter>();
             var mr = treeObj.AddComponent<MeshRenderer>();
             mf.sharedMesh = meshData.treeMesh;
-            mr.sharedMaterial = resourceForestTreeMaterial;
+            mr.sharedMaterial = resourceForestTreeMaterial != null
+                ? resourceForestTreeMaterial
+                : treeMaterial;
         }
 
         if (meshData.shadowMesh != null)
@@ -610,7 +617,9 @@ public class WorldChunkRenderer : MonoBehaviour
             var mf = shadowObj.AddComponent<MeshFilter>();
             var mr = shadowObj.AddComponent<MeshRenderer>();
             mf.sharedMesh = meshData.shadowMesh;
-            mr.sharedMaterial = resourceForestTreeShadowMaterial;
+            mr.sharedMaterial = resourceForestTreeShadowMaterial != null
+                ? resourceForestTreeShadowMaterial
+                : treeShadowMaterial;
         }
     }
 
