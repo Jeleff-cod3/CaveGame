@@ -111,5 +111,6 @@ __pycache__/
 *.py[cod]
 /.pytest_cache/
 /backend/.venv/
+/livegibberish/.venv/
 /backend/db.sqlite3
 /backend/staticfiles/
