@@ -11,6 +11,7 @@ from lobbies.models import Lobby, LobbyMember
 
 from .message_types import (
     HEARTBEAT,
+    KEY_STATE,
     LOBBY_SNAPSHOT,
     MAMMOTH_HEALTH,
     MAMMOTH_STATE,
@@ -20,9 +21,18 @@ from .message_types import (
     PLAYER_STATE,
     PONG,
     ROOM_SNAPSHOT,
+    SETUP_PLACEMENT,
+    TEACHER_STATE,
 )
 from .room_state import PlayerRuntimeState, get_room
-from .validators import is_valid_mammoth_health, is_valid_mammoth_state, is_valid_player_state
+from .validators import (
+    is_valid_key_state,
+    is_valid_mammoth_health,
+    is_valid_mammoth_state,
+    is_valid_player_state,
+    is_valid_setup_placement,
+    is_valid_teacher_state,
+)
 
 JSON_SEPARATORS = (",", ":")
 HEARTBEAT_INTERVAL = int(os.environ.get("WS_HEARTBEAT_INTERVAL", "5"))
@@ -344,6 +354,12 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             if message_type == PLAYER_STATE:
                 await self.handle_player_state(data)
+            elif message_type == SETUP_PLACEMENT:
+                await self.handle_setup_placement(data)
+            elif message_type == TEACHER_STATE:
+                await self.handle_teacher_state(data)
+            elif message_type == KEY_STATE:
+                await self.handle_key_state(data)
             elif message_type == MAMMOTH_HEALTH:
                 await self.handle_mammoth_health(data)
             elif message_type == MAMMOTH_STATE:
@@ -394,6 +410,9 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.rotation = data["rotation"]
             player.velocity = data["velocity"]
             player.animation_state = data.get("animationState", player.animation_state)
+            player.current_health = int(data.get("currentHealth", player.current_health))
+            player.max_health = int(data.get("maxHealth", player.max_health))
+            player.is_dead = bool(data.get("isDead", player.is_dead))
 
             payload = {
                 "type": PLAYER_STATE,
@@ -406,6 +425,106 @@ class GameConsumer(AsyncWebsocketConsumer):
                 "GameConsumer.handle_player_state failed (lobby=%s user=%s)",
                 getattr(self, "lobby_id", None),
                 getattr(getattr(self, "user", None), "id", None),
+            )
+
+    async def handle_setup_placement(self, data):
+        try:
+            if not is_valid_setup_placement(data):
+                return
+
+            room = get_room(self.lobby_id)
+            was_finalized = room.setup.is_finalized
+            room.setup.apply_placement(self.user.id, data)
+
+            placement_payload = dict(data)
+            placement_payload["lobbyId"] = self.lobby_id
+            placement_payload["userId"] = self.user.id
+            await send_to_game_room(room, placement_payload, self.channel_name)
+
+            if room.setup.is_finalized:
+                finalized_payload = room.setup.as_finalized_payload(self.lobby_id)
+                await send_to_game_room(room, finalized_payload)
+                if not was_finalized:
+                    logger.info(
+                        "GameConsumer.handle_setup_placement finalized setup (lobby=%s key_user=%s teacher_user=%s)",
+                        self.lobby_id,
+                        room.setup.key_hider_user_id,
+                        room.setup.teacher_placer_user_id,
+                    )
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_setup_placement failed (lobby=%s user=%s is_key_hider=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("isKeyHider"),
+            )
+
+    async def handle_teacher_state(self, data):
+        try:
+            if not is_valid_teacher_state(data):
+                return
+
+            room = get_room(self.lobby_id)
+            if (
+                room.setup.is_finalized
+                and room.setup.teacher_placer_user_id
+                and room.setup.teacher_placer_user_id != self.user.id
+            ):
+                return
+
+            teacher = room.teacher_for(data["teacherId"])
+            if data["seq"] <= teacher.seq:
+                return
+
+            teacher.apply_update(self.user.id, data)
+            await send_to_game_room(room, teacher.as_payload(self.lobby_id), self.channel_name)
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_teacher_state failed (lobby=%s user=%s teacher_id=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("teacherId"),
+            )
+
+    async def handle_key_state(self, data):
+        try:
+            if not is_valid_key_state(data):
+                return
+
+            room = get_room(self.lobby_id)
+            player = room.players.get(self.user.id)
+            requested_is_held = bool(data.get("isHeld", False))
+            sender_holds_key = (
+                requested_is_held
+                and player is not None
+                and data.get("holderPlayerId") == player.player_id
+            )
+            sender_is_key_hider = room.setup.key_hider_user_id == self.user.id
+            sender_is_current_holder = (
+                player is not None
+                and room.key.holder_player_id == player.player_id
+            )
+            if room.setup.is_finalized and room.setup.key_hider_user_id:
+                if requested_is_held:
+                    if not sender_holds_key:
+                        return
+                elif room.key.is_held:
+                    if not sender_is_current_holder:
+                        return
+                elif not sender_is_key_hider and not sender_is_current_holder:
+                    return
+
+            if data["seq"] <= room.key.seq and room.key.authoritative_user_id == self.user.id:
+                return
+
+            room.key.apply_update(self.user.id, data)
+            await send_to_game_room(room, room.key.as_payload(self.lobby_id), self.channel_name)
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_key_state failed (lobby=%s user=%s key_id=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("keyId"),
             )
 
     async def handle_mammoth_health(self, data):
@@ -468,6 +587,14 @@ class GameConsumer(AsyncWebsocketConsumer):
                 ],
                 "mammothState": room.mammoth.as_state_payload(self.lobby_id),
                 "mammothHealth": room.mammoth.as_health_payload(self.lobby_id),
+                "setup": room.setup.as_snapshot_payload(self.lobby_id),
+                "setupFinalized": room.setup.as_finalized_payload(self.lobby_id) if room.setup.is_finalized else None,
+                "teachers": [
+                    teacher.as_payload(self.lobby_id)
+                    for teacher in room.teachers.values()
+                    if teacher.seq > 0
+                ],
+                "keyState": room.key.as_payload(self.lobby_id) if room.key.seq > 0 else None,
             }
         )
 
