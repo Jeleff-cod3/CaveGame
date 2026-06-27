@@ -80,6 +80,32 @@ class ReplacementTests(unittest.TestCase):
 
         self.assertEqual(len(assembled.pcm), config.bytes_per_frame * 5)
 
+    def test_assembler_keeps_allowed_audio_clear_when_timestamps_overlap(self):
+        config = AudioConfig()
+        allowed_sample = int(1000).to_bytes(2, byteorder="little", signed=True)
+        blocked_sample = int(2000).to_bytes(2, byteorder="little", signed=True)
+        first = FilteredWordSegment(
+            decision=WordDecision(WordResult("hello", 0.00, 0.06, 1.0), "hello", True, "whitelist"),
+            audio=AudioSlice(pcm=allowed_sample * config.samples_per_frame * 3, start=0.00, end=0.06),
+        )
+        second = FilteredWordSegment(
+            decision=WordDecision(WordResult("danger", 0.04, 0.08, 1.0), "danger", False, "not-whitelisted"),
+            audio=AudioSlice(pcm=blocked_sample * config.samples_per_frame * 2, start=0.04, end=0.08),
+        )
+        engine = ReplacementEngine(GibberishMapper(), StaticTtsEngine(), config=config)
+        replacements = (engine.replace(first), engine.replace(second))
+
+        assembled = ReplacementAssembler(config=config).assemble(replacements, start=0.0, end=0.08)
+
+        self.assertEqual(len(assembled.pcm), config.bytes_per_frame * 4)
+        self.assertEqual(sample_at(assembled.pcm, config.samples_per_frame * 2), 1000)
+        self.assertNotEqual(sample_at(assembled.pcm, config.samples_per_frame * 3), 0)
+
+
+def sample_at(pcm: bytes, sample_index: int) -> int:
+    byte_index = sample_index * 2
+    return int.from_bytes(pcm[byte_index : byte_index + 2], byteorder="little", signed=True)
+
 
 if __name__ == "__main__":
     unittest.main()

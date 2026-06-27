@@ -225,22 +225,6 @@
           <label for="seed">Seed</label>
           <input id="seed" value="{{ status.seed }}" autocomplete="off">
 
-          <div class="row">
-            <div>
-              <label for="asrBackend">ASR</label>
-              <select id="asrBackend">
-                <option value="faster-whisper">faster-whisper</option>
-              </select>
-            </div>
-            <div>
-              <label for="ttsBackend">TTS</label>
-              <select id="ttsBackend">
-                <option value="coqui-xtts">coqui-xtts</option>
-              </select>
-              <div id="ttsHint" class="hint"></div>
-            </div>
-          </div>
-
           <label for="asrModel">GPU ASR Model</label>
           <input id="asrModel" value="{{ status.asr_model }}" placeholder="hello danger">
           <div id="modelHint" class="hint"></div>
@@ -265,8 +249,7 @@
         <section>
           <h2>Microphone</h2>
           <div class="actions">
-            <button id="connectSocket">Connect</button>
-            <button id="startMic">Start Mic</button>
+            <button id="startMic">Record</button>
             <button id="stopMic" class="danger">Stop</button>
           </div>
         </section>
@@ -293,6 +276,9 @@
   </main>
 
   <script>
+    const ASR_BACKEND = "openai-whisper";
+    const TTS_BACKEND = "coqui-xtts";
+
     const state = {
       socket: null,
       micStream: null,
@@ -307,6 +293,9 @@
       targetRate: 16000,
       frameSamples: 320,
       processorReady: false,
+      recordingOnly: false,
+      recordingPromise: null,
+      recordingResolver: null,
       configPromise: null,
       configResolver: null
     };
@@ -315,9 +304,7 @@
       connectionStatus: document.getElementById("connectionStatus"),
       whitelist: document.getElementById("whitelist"),
       seed: document.getElementById("seed"),
-      asrBackend: document.getElementById("asrBackend"),
       asrModel: document.getElementById("asrModel"),
-      ttsBackend: document.getElementById("ttsBackend"),
       confidence: document.getElementById("confidence"),
       bufferSeconds: document.getElementById("bufferSeconds"),
       statusJson: document.getElementById("statusJson"),
@@ -327,21 +314,16 @@
       audioBytes: document.getElementById("audioBytes")
     };
     const startMicButton = document.getElementById("startMic");
+    const stopMicButton = document.getElementById("stopMic");
 
     const initialStatus = {{ status_json|safe }};
-    elements.asrBackend.value = initialStatus.asr_backend || "faster-whisper";
-    elements.ttsBackend.value = initialStatus.tts_backend || "coqui-xtts";
     renderStatus(initialStatus);
 
     document.getElementById("saveConfig").addEventListener("click", saveConfig);
     document.getElementById("refreshStatus").addEventListener("click", refreshStatus);
-    document.getElementById("connectSocket").addEventListener("click", connectSocket);
     document.getElementById("startMic").addEventListener("click", startMic);
-    document.getElementById("stopMic").addEventListener("click", stopAll);
-    elements.asrBackend.addEventListener("change", updateModelHint);
-    elements.ttsBackend.addEventListener("change", updateTtsHint);
+    document.getElementById("stopMic").addEventListener("click", stopSession);
     updateModelHint();
-    updateTtsHint();
     updateStartButton();
 
     async function saveConfig() {
@@ -353,9 +335,6 @@
       });
       const data = await response.json();
       renderStatus(data.config || data);
-      if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-        await applySocketConfig(payload);
-      }
       appendLog("Config saved");
     }
 
@@ -368,11 +347,11 @@
 
     function readConfig() {
       return {
-        whitelist: elements.whitelist.value.split(",").map(word => word.trim()).filter(Boolean),
+        whitelist: elements.whitelist.value.split(/[\s,;]+/).map(word => word.trim()).filter(Boolean),
         seed: elements.seed.value.trim() || "cavegame-live-gibberish",
-        asr_backend: elements.asrBackend.value,
+        asr_backend: ASR_BACKEND,
         asr_model: elements.asrModel.value,
-        tts_backend: elements.ttsBackend.value,
+        tts_backend: TTS_BACKEND,
         confidence: Number(elements.confidence.value || 0.7),
         buffer_seconds: Number(elements.bufferSeconds.value || 5)
       };
@@ -392,7 +371,9 @@
         state.processorReady = false;
         updateStartButton();
         elements.connectionStatus.textContent = "Connected";
-        applySocketConfig(readConfig());
+        if (!state.recordingOnly) {
+          applySocketConfig(readConfig());
+        }
         appendLog("WebSocket connected");
       };
       socket.onclose = () => {
@@ -415,15 +396,38 @@
     }
 
     async function startMic() {
+      state.recordingOnly = true;
+      resetRunMetrics();
       if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
         connectSocket();
         await waitForSocketOpen();
       }
-      if (!state.processorReady) {
+      state.recordingPromise = new Promise(resolve => {
+        state.recordingResolver = resolve;
+      });
+      state.socket.send(JSON.stringify({ type: "start_session", config: readConfig() }));
+      await state.recordingPromise;
+      await startCapture({ requireProcessor: false });
+    }
+
+    async function stopSession() {
+      stopCaptureOnly();
+      if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+        state.socket.send(JSON.stringify({ type: "stop_session" }));
+      }
+      elements.connectionStatus.textContent = "Processing";
+    }
+
+    async function startCapture({ requireProcessor }) {
+      if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+        connectSocket();
+        await waitForSocketOpen();
+      }
+      if (requireProcessor && !state.processorReady) {
         appendLog("Waiting for processor to finish loading");
         await waitForProcessorReady();
       }
-      if (!state.processorReady) {
+      if (requireProcessor && !state.processorReady) {
         appendLog("Processor is not ready; microphone was not started");
         return;
       }
@@ -454,11 +458,24 @@
       };
       state.source.connect(state.processor);
       state.processor.connect(state.audioContext.destination);
-      elements.connectionStatus.textContent = "Streaming";
-      appendLog("Microphone started");
+      elements.connectionStatus.textContent = requireProcessor ? "Streaming" : "Recording";
+      appendLog(requireProcessor ? "Microphone started" : "Recording started");
     }
 
     function stopAll() {
+      stopCaptureOnly();
+      if (state.socket) {
+        state.socket.close();
+        state.socket = null;
+      }
+      state.recordingOnly = false;
+      state.processorReady = false;
+      updateStartButton();
+      elements.connectionStatus.textContent = "Stopped";
+      appendLog("Stopped");
+    }
+
+    function stopCaptureOnly() {
       if (state.processor) {
         state.processor.disconnect();
         state.processor = null;
@@ -471,14 +488,7 @@
         state.micStream.getTracks().forEach(track => track.stop());
         state.micStream = null;
       }
-      if (state.socket) {
-        state.socket.close();
-        state.socket = null;
-      }
-      state.processorReady = false;
-      updateStartButton();
-      elements.connectionStatus.textContent = "Stopped";
-      appendLog("Stopped");
+      state.pendingSamples = [];
     }
 
     function sendPcm16(samples) {
@@ -504,7 +514,9 @@
         const words = (data.words || []).map(word => {
           const cls = word.allowed ? "allowed" : "blocked";
           const replacement = word.replacement ? ` -> ${word.replacement}` : "";
-          return `<span class="${cls}">${escapeHtml(word.word || "?")}</span>${escapeHtml(replacement)}`;
+          const original = word.original && word.original !== word.word ? `${word.original} / ` : "";
+          const reason = word.reason ? ` (${word.reason})` : "";
+          return `<span class="${cls}">${escapeHtml(original)}${escapeHtml(word.word || "?")}</span>${escapeHtml(replacement)}${escapeHtml(reason)}`;
         }).join(", ");
         appendLog(`Segment ${data.start.toFixed(2)}-${data.end.toFixed(2)}s: ${escapeHtml(data.text || "")}\n${words}`);
       } else if (data.type === "ready") {
@@ -530,6 +542,27 @@
         appendLog(data.ok ? "Processor ready" : `Processor error: ${escapeHtml(data.error || "unknown")}`);
       } else if (data.type === "error") {
         appendLog(`Error: ${escapeHtml(data.message || JSON.stringify(data))}`);
+      } else if (data.type === "session") {
+        if (data.status === "recording") {
+          if (state.recordingResolver) {
+            state.recordingResolver(true);
+            state.recordingResolver = null;
+            state.recordingPromise = null;
+          }
+          elements.connectionStatus.textContent = "Recording";
+          appendLog(`Recording input: ${escapeHtml(data.input_wav || "")}`);
+        } else if (data.status === "processing") {
+          elements.connectionStatus.textContent = "Processing";
+          appendLog("Processing recorded WAV");
+        } else if (data.ok) {
+          state.recordingOnly = false;
+          elements.connectionStatus.textContent = "Done";
+          appendLog(`Output WAV: ${escapeHtml(data.output_wav || "")}\nInput WAV: ${escapeHtml(data.input_wav || "")}\nSegments: ${data.segments || 0}`);
+        } else {
+          state.recordingOnly = false;
+          elements.connectionStatus.textContent = "Error";
+          appendLog(`Session error: ${escapeHtml(data.error || "unknown")}`);
+        }
       } else {
         appendLog(JSON.stringify(data));
       }
@@ -586,42 +619,16 @@
       if (status.asr_model !== undefined) {
         elements.asrModel.value = status.asr_model || "";
       }
-      if (status.asr_backend !== undefined) {
-        elements.asrBackend.value = status.asr_backend || "faster-whisper";
-      }
       if (status.model_hint) {
         document.getElementById("modelHint").textContent = status.model_hint;
       } else {
         updateModelHint();
       }
-      if (status.tts_hint) {
-        document.getElementById("ttsHint").textContent = status.tts_hint;
-      } else {
-        updateTtsHint();
-      }
     }
 
     function updateModelHint() {
-      const backend = elements.asrBackend.value;
       const hint = document.getElementById("modelHint");
-      if (backend === "faster-whisper") {
-        hint.textContent = "Use a faster-whisper model name like base.en, small.en, large-v3, or turbo. Do not put a transcript here.";
-        if (elements.asrModel.value.trim().includes(" ")) {
-          elements.asrModel.value = "base.en";
-        }
-      } else {
-        hint.textContent = "GPU-only ASR is enforced. Unsupported backends are reset to faster-whisper.";
-      }
-    }
-
-    function updateTtsHint() {
-      const backend = elements.ttsBackend.value;
-      const hint = document.getElementById("ttsHint");
-      if (backend === "coqui-xtts") {
-        hint.textContent = "GPU-only Coqui XTTS. Requires Coqui install and an enrollment WAV. Missing setup is reported as an error.";
-      } else {
-        hint.textContent = "GPU-only TTS is enforced. Unsupported backends are reset to coqui-xtts.";
-      }
+      hint.textContent = "Fixed backend: GPU openai-whisper ASR plus GPU Coqui XTTS. Record 5s+ so the backend can create the speaker reference and output WAV.";
     }
 
     function appendLog(message) {
@@ -691,8 +698,20 @@
     }
 
     function updateStartButton() {
-      startMicButton.disabled = !state.processorReady;
-      startMicButton.textContent = state.processorReady ? "Start Mic" : "Waiting";
+      startMicButton.disabled = false;
+      stopMicButton.disabled = false;
+      startMicButton.textContent = "Record";
+    }
+
+    function resetRunMetrics() {
+      state.pendingSamples = [];
+      state.playbackTime = 0;
+      state.framesSent = 0;
+      state.segmentsSeen = 0;
+      state.audioBytes = 0;
+      elements.framesSent.textContent = "0";
+      elements.segmentsSeen.textContent = "0";
+      elements.audioBytes.textContent = "0";
     }
   </script>
 </body>

@@ -15,6 +15,7 @@ VSDEVCMD_CANDIDATES = (
     r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat",
 )
 WINDOWS_KITS_10_ROOT = Path(r"C:\Program Files (x86)\Windows Kits\10")
+PYTORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu118"
 
 
 def require_coqui_xtts_python() -> None:
@@ -97,22 +98,44 @@ def install_packages(packages: list[str], *, needs_native_build: bool = False) -
     subprocess.check_call([sys.executable, "-m", "pip", "install", *packages])
 
 
+def install_cuda_torch() -> None:
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--force-reinstall",
+            "torch==2.6.0+cu118",
+            "torchaudio==2.6.0+cu118",
+            "--index-url",
+            PYTORCH_CUDA_INDEX_URL,
+        ]
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install optional real ASR/TTS backends for live gibberish.")
-    parser.add_argument("--faster-whisper", action="store_true", help="Install faster-whisper.")
+    parser.add_argument("--openai-whisper", action="store_true", help="Install OpenAI Whisper for GPU torch ASR.")
     parser.add_argument("--webrtcvad", action="store_true", help="Install wheel-backed WebRTC VAD when available.")
     parser.add_argument("--coqui-xtts", action="store_true", help="Install Coqui TTS for XTTS voice cloning.")
     args = parser.parse_args()
 
     packages: list[str] = []
     needs_native_build = False
-    if args.faster_whisper:
-        packages.append("faster-whisper>=1.0,<2.0")
+    if args.openai_whisper:
+        install_cuda_torch()
+        packages.append("openai-whisper")
     if args.webrtcvad:
         packages.append("webrtcvad-wheels")
     if args.coqui_xtts:
         require_coqui_xtts_python()
+        if not args.openai_whisper:
+            install_cuda_torch()
         packages.append("TTS>=0.22,<0.23")
+        packages.append("transformers>=4.33,<4.34")
+        packages.append("networkx>=2.5,<3")
         needs_native_build = True
 
     install_packages(packages, needs_native_build=needs_native_build)

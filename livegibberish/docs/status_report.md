@@ -4,12 +4,14 @@ The app is now strict GPU-only for production paths.
 
 Implemented:
 
-- GPU `faster-whisper` ASR backend.
+- GPU `openai-whisper` ASR backend.
 - Coqui XTTS TTS backend.
 - Whitelist filtering and deterministic gibberish text mapping.
 - Audio replacement assembly.
 - Django REST endpoints and Channels WebSocket.
 - Browser test frontend.
+- One-button browser recording that creates a backend session input WAV and
+  processed output WAV.
 - Unity audio client script.
 - Benchmark script.
 
@@ -23,8 +25,8 @@ Explicitly removed:
 
 Current limitation:
 
-- The machine must have a working CUDA/cuBLAS setup for `faster-whisper`.
-- Coqui XTTS must be installed and configured with an enrollment WAV for real
-  replacement speech.
+- The machine must have working CUDA torch for `openai-whisper`.
+- Recorded sessions must be 5s+ so the backend can use the session input WAV as
+  the Coqui XTTS speaker reference.
 - If either model path fails, the browser log should show the exact exception.
 

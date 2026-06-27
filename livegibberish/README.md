@@ -2,7 +2,7 @@
 
 Live Gibberish is the CaveGame voice filter. The current app is strict:
 
-- ASR is GPU `faster-whisper` only.
+- ASR is GPU `openai-whisper` only.
 - TTS is GPU Coqui XTTS only.
 - There is no production fake ASR.
 - There is no production fake TTS.
@@ -21,8 +21,11 @@ Rename-Item .venv .venv-py313-broken
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python scripts\setup_real_backends.py --faster-whisper --coqui-xtts
+python scripts\setup_real_backends.py --openai-whisper --coqui-xtts
 ```
+
+The setup script installs CUDA 11.8 PyTorch wheels for this machine:
+`torch==2.6.0+cu118` and `torchaudio==2.6.0+cu118`.
 
 If `py -3.11` is not available, install Python 3.11 first:
 
@@ -69,18 +72,22 @@ http://localhost:8000/
 Use the browser page:
 
 - Whitelist Words: comma-separated allowed words.
-- ASR: `faster-whisper`.
-- ASR Model: `base.en`, `small.en`, `large-v3`, `turbo`, etc.
-- TTS: `coqui-xtts`.
+- GPU ASR Model: `base.en`, `small.en`, `large-v3`, `turbo`, etc.
+- Seed: deterministic gibberish mapping seed.
+- Confidence: minimum confidence before a word is treated as allowed.
+- Buffer Seconds: how much recent speech audio is retained for word replacement.
 
-Coqui XTTS still needs a valid speaker reference/enrollment WAV before blocked
-word replacement can synthesize in a target voice. Missing setup is reported as
-an error, not hidden behind a substitute backend.
+The ASR and TTS backends are fixed: GPU `openai-whisper` and GPU Coqui XTTS.
+There is no upload or separate enrollment step. Press **Record**, speak for at
+least five seconds, then press **Stop**. The backend writes a timestamped input
+WAV in `runtime/sessions`, uses that WAV as the Coqui XTTS speaker reference,
+runs the whitelist/gibberish/TTS replacement pipeline, and writes the filtered
+output WAV next to it.
 
 ## Benchmark
 
 ```powershell
-python scripts\benchmark_pipeline.py --source sample.wav --asr faster-whisper --model base.en --whitelist hello cave --tts coqui-xtts --output benchmark-output.wav --report benchmark-report.json
+python scripts\benchmark_pipeline.py --source sample.wav --asr openai-whisper --model base.en --whitelist hello cave --tts coqui-xtts --output benchmark-output.wav --report benchmark-report.json
 ```
 
 ## Tests

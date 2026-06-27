@@ -20,7 +20,7 @@ from live_gibberish.wav_utils import write_wav
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark live gibberish on a 16 kHz mono 16-bit WAV.")
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--asr", default="faster-whisper", choices=["faster-whisper"])
+    parser.add_argument("--asr", default="openai-whisper", choices=["openai-whisper"])
     parser.add_argument("--model", default="base.en")
     parser.add_argument("--whitelist", nargs="*", default=[])
     parser.add_argument("--tts", default="coqui-xtts", choices=["coqui-xtts"])

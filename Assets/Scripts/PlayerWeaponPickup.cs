@@ -72,6 +72,16 @@ public class PlayerWeaponPickup : MonoBehaviour
         thrownWeapon.Throw(direction);
     }
 
+    public void ClearEquippedWeaponIfMatches(PickupableWeapon weapon)
+    {
+        if (weapon == null || equippedWeapon != weapon)
+        {
+            return;
+        }
+
+        equippedWeapon = null;
+    }
+
     private void OnTriggerEnter(Collider other)
     {
         PickupableWeapon weapon = other.GetComponent<PickupableWeapon>();

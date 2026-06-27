@@ -5,7 +5,7 @@ pipeline:
 
 1. Capture or receive 16 kHz mono 16-bit PCM frames.
 2. Detect speech and buffer segments.
-3. Run GPU `faster-whisper` ASR.
+3. Run GPU `openai-whisper` ASR.
 4. Normalize word timestamps.
 5. Check recognized words against the whitelist.
 6. Extract original per-word audio from the timed buffer.

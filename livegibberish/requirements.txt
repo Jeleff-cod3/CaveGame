@@ -1,11 +1,11 @@
 # Core prototype dependencies.
-numpy>=1.26,<3.0
+numpy>=1.26,<2.0
 
 # Audio I/O. Required for microphone/speaker paths, not for WAV-file smoke tests.
 sounddevice>=0.4.7,<0.6
 
-# GPU ASR backend. Install with scripts\setup_real_backends.py --faster-whisper.
-# faster-whisper>=1.0,<2.0
+# GPU ASR backend. Install with scripts\setup_real_backends.py --openai-whisper.
+# openai-whisper
 
 # Optional VAD backend. Not installed by default because classic webrtcvad often
 # needs local C build tools on Windows/Python 3.13. Use:
@@ -13,7 +13,11 @@ sounddevice>=0.4.7,<0.6
 # webrtcvad-wheels
 
 # GPU runtime TTS backend. Install with scripts\setup_real_backends.py --coqui-xtts.
+# torch==2.6.0+cu118
+# torchaudio==2.6.0+cu118
 # TTS>=0.22,<0.23
+# transformers>=4.33,<4.34
+# networkx>=2.5,<3
 
 # Django/Channels prototype API.
 django>=5.0,<6.0

@@ -7,19 +7,21 @@ from typing import Optional
 from .asr import create_asr
 from .audio_io import AudioConfig
 from .processor import LiveGibberishProcessor, ProcessedSegment
+from .speaker import SpeakerEnrollment
 from .tts import create_tts_engine
 from .vad import create_vad
 
 
 @dataclass(frozen=True)
 class ProcessorWorkerConfig:
-    asr_backend: str = "faster-whisper"
+    asr_backend: str = "openai-whisper"
     asr_model: str = "base.en"
     whitelist: tuple[str, ...] = ()
     seed: str = "cavegame-live-gibberish"
     confidence: float = 0.70
     buffer_seconds: float = 5.0
     tts_backend: str = "coqui-xtts"
+    enrollment_wav: str = ""
 
 
 class WorkerBackedProcessor:
@@ -60,6 +62,11 @@ class WorkerBackedProcessor:
 def _worker_main(config: ProcessorWorkerConfig, requests: mp.Queue, responses: mp.Queue) -> None:
     try:
         audio_config = AudioConfig()
+        speaker_profile = (
+            SpeakerEnrollment(config=audio_config).from_wav(config.enrollment_wav)
+            if config.enrollment_wav
+            else None
+        )
         processor = LiveGibberishProcessor(
             asr=create_asr(config.asr_backend, model=config.asr_model, whitelist=config.whitelist),
             vad=create_vad(),
@@ -69,6 +76,7 @@ def _worker_main(config: ProcessorWorkerConfig, requests: mp.Queue, responses: m
             config=audio_config,
             confidence_threshold=config.confidence,
             buffer_seconds=config.buffer_seconds,
+            speaker_profile=speaker_profile,
         )
         while True:
             command, pcm, timestamp = requests.get()

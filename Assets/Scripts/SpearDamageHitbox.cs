@@ -55,6 +55,17 @@ public class SpearDamageHitbox : MonoBehaviour
             return;
         }
 
+        if (weapon.ShouldIgnoreCollider(other))
+        {
+            return;
+        }
+
+        // Let the weapon own melee impact logic (damage + optional stick).
+        if (weapon.TryRegisterMeleeContact(other))
+        {
+            return;
+        }
+
         Component damageableComponent = other.GetComponent(typeof(IDamageable)) as Component;
 
         if (damageableComponent == null)
