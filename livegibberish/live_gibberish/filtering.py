@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Iterable
 
 from .asr import WordResult
-
-
-_WORD_EDGE_PATTERN = re.compile(r"(^[^\w]+|[^\w]+$)")
+from .text_normalization import normalize_word
 
 
 @dataclass(frozen=True)
@@ -46,12 +43,6 @@ class WhitelistChecker:
 
     def check_all(self, words: Iterable[WordResult]) -> tuple[WordDecision, ...]:
         return tuple(self.check(word) for word in words)
-
-
-def normalize_word(word: str) -> str:
-    lowered = word.strip().casefold()
-    return _WORD_EDGE_PATTERN.sub("", lowered)
-
 
 def _closest_whitelist_match(word: str, allowed_words: set[str]) -> str | None:
     if len(word) < 4:

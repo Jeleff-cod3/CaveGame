@@ -23,6 +23,11 @@ from .message_types import (
     ROOM_SNAPSHOT,
     SETUP_PLACEMENT,
     TEACHER_STATE,
+    VOICE_PEER_LEFT,
+    VOICE_PRESENCE,
+    WEBRTC_ANSWER,
+    WEBRTC_ICE,
+    WEBRTC_OFFER,
 )
 from .room_state import PlayerRuntimeState, get_room
 from .validators import (
@@ -32,6 +37,10 @@ from .validators import (
     is_valid_player_state,
     is_valid_setup_placement,
     is_valid_teacher_state,
+    is_valid_voice_presence,
+    is_valid_webrtc_answer,
+    is_valid_webrtc_ice,
+    is_valid_webrtc_offer,
 )
 
 JSON_SEPARATORS = (",", ":")
@@ -284,6 +293,11 @@ class GameConsumer(AsyncWebsocketConsumer):
                 channel_name=self.channel_name,
             )
             room.connections[self.channel_name] = self
+            room.voice.connect_player(
+                player_id=self.player_id,
+                user_id=self.user.id,
+                channel_name=self.channel_name,
+            )
 
             await self.accept()
             self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
@@ -321,6 +335,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 del room.players[self.user.id]
 
             room.connections.pop(self.channel_name, None)
+            removed_voice_player_id = room.voice.disconnect_player(channel_name=self.channel_name)
 
             if hasattr(self, "player_id"):
                 await send_to_game_room(
@@ -330,6 +345,16 @@ class GameConsumer(AsyncWebsocketConsumer):
                         "lobbyId": self.lobby_id,
                         "playerId": self.player_id,
                         "userId": self.user.id,
+                    },
+                )
+            if removed_voice_player_id:
+                await send_to_game_room(
+                    room,
+                    {
+                        "type": VOICE_PEER_LEFT,
+                        "lobbyId": self.lobby_id,
+                        "playerId": removed_voice_player_id,
+                        "userId": getattr(self.user, "id", 0),
                     },
                 )
         except Exception:
@@ -364,6 +389,14 @@ class GameConsumer(AsyncWebsocketConsumer):
                 await self.handle_mammoth_health(data)
             elif message_type == MAMMOTH_STATE:
                 await self.handle_mammoth_state(data)
+            elif message_type == WEBRTC_OFFER:
+                await self.handle_webrtc_offer(data)
+            elif message_type == WEBRTC_ANSWER:
+                await self.handle_webrtc_answer(data)
+            elif message_type == WEBRTC_ICE:
+                await self.handle_webrtc_ice(data)
+            elif message_type == VOICE_PRESENCE:
+                await self.handle_voice_presence(data)
             elif message_type == PING:
                 await self.send_json(
                     {
@@ -413,6 +446,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.current_health = int(data.get("currentHealth", player.current_health))
             player.max_health = int(data.get("maxHealth", player.max_health))
             player.is_dead = bool(data.get("isDead", player.is_dead))
+            room.voice.update_position(player.player_id, player.position, now)
 
             payload = {
                 "type": PLAYER_STATE,
@@ -420,6 +454,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             }
 
             await send_to_game_room(room, payload, self.channel_name)
+            await self.send_voice_interest_snapshots_if_due(room, now)
         except Exception:
             logger.exception(
                 "GameConsumer.handle_player_state failed (lobby=%s user=%s)",
@@ -571,6 +606,93 @@ class GameConsumer(AsyncWebsocketConsumer):
                 getattr(self, "lobby_id", None),
                 getattr(getattr(self, "user", None), "id", None),
             )
+
+    async def handle_webrtc_offer(self, data):
+        if is_valid_webrtc_offer(data):
+            await self.relay_webrtc_signal(data)
+
+    async def handle_webrtc_answer(self, data):
+        if is_valid_webrtc_answer(data):
+            await self.relay_webrtc_signal(data)
+
+    async def handle_webrtc_ice(self, data):
+        if is_valid_webrtc_ice(data):
+            await self.relay_webrtc_signal(data)
+
+    async def handle_voice_presence(self, data):
+        try:
+            if not is_valid_voice_presence(data):
+                return
+
+            room = get_room(self.lobby_id)
+            if not room.voice.has_player(self.player_id):
+                return
+
+            room.voice.apply_presence(
+                self.player_id,
+                is_ready=data["isReady"],
+                is_muted=data.get("isMuted", False),
+            )
+            await self.send_voice_interest_snapshots(room)
+        except Exception:
+            logger.exception(
+                "GameConsumer.handle_voice_presence failed (lobby=%s user=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+            )
+
+    async def relay_webrtc_signal(self, data):
+        try:
+            room = get_room(self.lobby_id)
+            if not room.voice.has_player(self.player_id):
+                return
+
+            target_player_id = data.get("targetPlayerId")
+            target_channel_name = room.voice.channel_name_for_player(target_player_id)
+            if target_channel_name is None:
+                return
+
+            target_consumer = room.connections.get(target_channel_name)
+            if target_consumer is None:
+                room.voice.disconnect_player(player_id=target_player_id)
+                return
+
+            payload = dict(data)
+            payload["lobbyId"] = self.lobby_id
+            payload["fromPlayerId"] = self.player_id
+            await target_consumer.send_json(payload)
+        except Exception:
+            logger.exception(
+                "GameConsumer.relay_webrtc_signal failed (lobby=%s user=%s type=%s target=%s)",
+                getattr(self, "lobby_id", None),
+                getattr(getattr(self, "user", None), "id", None),
+                data.get("type"),
+                data.get("targetPlayerId"),
+            )
+
+    async def send_voice_interest_snapshots_if_due(self, room, now: float):
+        if room.voice.should_send_interest_snapshots(now):
+            await self.send_voice_interest_snapshots(room)
+
+    async def send_voice_interest_snapshots(self, room):
+        stale_channels = []
+        for player_id in list(room.voice.peers_by_player_id.keys()):
+            channel_name = room.voice.channel_name_for_player(player_id)
+            consumer = room.connections.get(channel_name)
+            if consumer is None:
+                if channel_name is not None:
+                    stale_channels.append(channel_name)
+                continue
+
+            try:
+                await consumer.send_json(room.voice.as_interest_snapshot(player_id))
+            except Exception:
+                if channel_name is not None:
+                    stale_channels.append(channel_name)
+
+        for channel_name in stale_channels:
+            room.connections.pop(channel_name, None)
+            room.voice.disconnect_player(channel_name=channel_name)
 
     async def send_room_snapshot(self):
         room = get_room(self.lobby_id)

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from time import time
 
+from .voice_runtime import VoiceRoomRuntimeState
+
 
 def vector3_from(value, fallback=None) -> list[float]:
     if fallback is None:
@@ -267,7 +269,11 @@ class RoomRuntimeState:
     setup: SetupPlacementRuntimeState = field(default_factory=SetupPlacementRuntimeState)
     teachers: dict[str, TeacherRuntimeState] = field(default_factory=dict)
     key: KeyRuntimeState = field(default_factory=KeyRuntimeState)
+    voice: VoiceRoomRuntimeState = field(init=False)
     started: bool = False
+
+    def __post_init__(self) -> None:
+        self.voice = VoiceRoomRuntimeState(lobby_id=self.lobby_id)
 
     def teacher_for(self, teacher_id: str) -> TeacherRuntimeState:
         if teacher_id not in self.teachers:

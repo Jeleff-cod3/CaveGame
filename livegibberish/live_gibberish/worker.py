@@ -5,8 +5,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .asr import create_asr
+from .audio_bank import SampleBank
 from .audio_io import AudioConfig
 from .processor import LiveGibberishProcessor, ProcessedSegment
+from .replacement_modes import PRERECORDED_SAMPLE_SUBSTITUTION_MODE
 from .speaker import SpeakerEnrollment
 from .tts import create_tts_engine
 from .vad import create_vad
@@ -22,6 +24,9 @@ class ProcessorWorkerConfig:
     buffer_seconds: float = 5.0
     tts_backend: str = "coqui-xtts"
     enrollment_wav: str = ""
+    audio_bank_user: str = ""
+    audio_bank_missing_word_policy: str = "strict"
+    audio_replacement_mode: str = "original_gibberish"
 
 
 class WorkerBackedProcessor:
@@ -62,21 +67,35 @@ class WorkerBackedProcessor:
 def _worker_main(config: ProcessorWorkerConfig, requests: mp.Queue, responses: mp.Queue) -> None:
     try:
         audio_config = AudioConfig()
+        sample_mode_enabled = config.audio_replacement_mode == PRERECORDED_SAMPLE_SUBSTITUTION_MODE
+        if sample_mode_enabled and not config.audio_bank_user:
+            raise ValueError("prerecorded_sample_substitution mode requires audio_bank_user.")
+        sample_bank = (
+            SampleBank.load(
+                config.audio_bank_user,
+                required_whitelist=config.whitelist if config.audio_bank_missing_word_policy == "strict" else (),
+                config=audio_config,
+            )
+            if sample_mode_enabled
+            else None
+        )
         speaker_profile = (
             SpeakerEnrollment(config=audio_config).from_wav(config.enrollment_wav)
-            if config.enrollment_wav
+            if config.enrollment_wav and sample_bank is None
             else None
         )
         processor = LiveGibberishProcessor(
             asr=create_asr(config.asr_backend, model=config.asr_model, whitelist=config.whitelist),
             vad=create_vad(),
-            tts=create_tts_engine(config.tts_backend),
+            tts=None if sample_bank else create_tts_engine(config.tts_backend),
             whitelist=list(config.whitelist),
             seed=config.seed,
             config=audio_config,
             confidence_threshold=config.confidence,
             buffer_seconds=config.buffer_seconds,
             speaker_profile=speaker_profile,
+            sample_bank=sample_bank,
+            sample_fallback_policy=config.audio_bank_missing_word_policy,
         )
         while True:
             command, pcm, timestamp = requests.get()

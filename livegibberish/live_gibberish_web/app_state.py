@@ -10,8 +10,15 @@ from threading import Lock
 from typing import Any
 
 from live_gibberish.asr import create_asr
+from live_gibberish.audio_bank import SampleBank
 from live_gibberish.audio_io import AudioConfig
 from live_gibberish.processor import LiveGibberishProcessor
+from live_gibberish.replacement_modes import (
+    ORIGINAL_GIBBERISH_MODE,
+    PRERECORDED_SAMPLE_SUBSTITUTION_MODE,
+    normalize_audio_replacement_mode,
+)
+from live_gibberish.sample_substitution import normalize_fallback_policy
 from live_gibberish.speaker import SpeakerEnrollment
 from live_gibberish.tts import create_tts_engine
 from live_gibberish.vad import create_vad
@@ -73,6 +80,9 @@ class RuntimeConfig:
     asr_model: str = DEFAULT_OPENAI_WHISPER_MODEL
     tts_backend: str = "coqui-xtts"
     enrollment_wav: str = ""
+    audio_bank_user: str = ""
+    audio_bank_missing_word_policy: str = "strict"
+    audio_replacement_mode: str = ORIGINAL_GIBBERISH_MODE
     use_worker: bool = False
 
 
@@ -82,10 +92,12 @@ CONFIG_PATH = Path(
 
 
 def _load_config() -> RuntimeConfig:
+    env_mode = os.environ.get("AUDIO_REPLACEMENT_MODE", ORIGINAL_GIBBERISH_MODE)
     if not CONFIG_PATH.exists():
-        return RuntimeConfig()
+        return normalize_config(RuntimeConfig(audio_replacement_mode=env_mode))
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        data.setdefault("audio_replacement_mode", env_mode)
         if "whitelist" in data:
             data["whitelist"] = tuple(data["whitelist"])
         allowed = {field.name for field in RuntimeConfig.__dataclass_fields__.values()}
@@ -133,6 +145,9 @@ def update_config(data: dict[str, Any]) -> RuntimeConfig:
         "asr_model",
         "tts_backend",
         "enrollment_wav",
+        "audio_bank_user",
+        "audio_bank_missing_word_policy",
+        "audio_replacement_mode",
         "use_worker",
     }
     updates = {key: value for key, value in data.items() if key in allowed_fields}
@@ -168,23 +183,40 @@ def build_processor(config: RuntimeConfig | None = None):
                 buffer_seconds=config.buffer_seconds,
                 tts_backend=config.tts_backend,
                 enrollment_wav=config.enrollment_wav,
+                audio_bank_user=config.audio_bank_user,
+                audio_bank_missing_word_policy=config.audio_bank_missing_word_policy,
+                audio_replacement_mode=config.audio_replacement_mode,
             )
         )
+    sample_mode_enabled = config.audio_replacement_mode == PRERECORDED_SAMPLE_SUBSTITUTION_MODE
+    if sample_mode_enabled and not config.audio_bank_user:
+        raise ValueError("prerecorded_sample_substitution mode requires audio_bank_user.")
+    sample_bank = (
+        SampleBank.load(
+            config.audio_bank_user,
+            required_whitelist=config.whitelist if config.audio_bank_missing_word_policy == "strict" else (),
+            config=AudioConfig(),
+        )
+        if sample_mode_enabled
+        else None
+    )
     speaker_profile = (
         SpeakerEnrollment(config=AudioConfig()).from_wav(config.enrollment_wav)
-        if config.enrollment_wav
+        if config.enrollment_wav and sample_bank is None
         else None
     )
     return LiveGibberishProcessor(
         asr=create_asr(config.asr_backend, model=config.asr_model, whitelist=config.whitelist),
         vad=create_vad(),
-        tts=create_tts_engine(config.tts_backend),
+        tts=None if sample_bank else create_tts_engine(config.tts_backend),
         whitelist=list(config.whitelist),
         seed=config.seed,
         config=AudioConfig(),
         confidence_threshold=config.confidence,
         buffer_seconds=config.buffer_seconds,
         speaker_profile=speaker_profile,
+        sample_bank=sample_bank,
+        sample_fallback_policy=config.audio_bank_missing_word_policy,
     )
 
 
@@ -193,6 +225,9 @@ def normalize_config(config: RuntimeConfig) -> RuntimeConfig:
     model = str(config.asr_model or "").strip()
     tts_backend = str(config.tts_backend or "coqui-xtts").strip().lower()
     enrollment_wav = str(config.enrollment_wav or "").strip().strip('"')
+    audio_bank_user = str(config.audio_bank_user or "").strip()
+    audio_bank_missing_word_policy = normalize_fallback_policy(config.audio_bank_missing_word_policy)
+    audio_replacement_mode = normalize_audio_replacement_mode(config.audio_replacement_mode)
     if tts_backend in {"coqui", "xtts"}:
         tts_backend = "coqui-xtts"
     if tts_backend != "coqui-xtts":
@@ -209,6 +244,9 @@ def normalize_config(config: RuntimeConfig) -> RuntimeConfig:
             asr_model=model,
             tts_backend=tts_backend,
             enrollment_wav=enrollment_wav,
+            audio_bank_user=audio_bank_user,
+            audio_bank_missing_word_policy=audio_bank_missing_word_policy,
+            audio_replacement_mode=audio_replacement_mode,
         )
 
     return replace(
@@ -217,6 +255,9 @@ def normalize_config(config: RuntimeConfig) -> RuntimeConfig:
         asr_model=DEFAULT_OPENAI_WHISPER_MODEL,
         tts_backend=tts_backend,
         enrollment_wav=enrollment_wav,
+        audio_bank_user=audio_bank_user,
+        audio_bank_missing_word_policy=audio_bank_missing_word_policy,
+        audio_replacement_mode=audio_replacement_mode,
     )
 
 
@@ -265,6 +306,9 @@ def _console_log_runtime_config(title: str, config: RuntimeConfig) -> None:
         f"asr_model={config.asr_model!r}",
         f"tts_backend={config.tts_backend!r}",
         f"enrollment_wav={config.enrollment_wav!r}",
+        f"audio_bank_user={config.audio_bank_user!r}",
+        f"audio_bank_missing_word_policy={config.audio_bank_missing_word_policy!r}",
+        f"audio_replacement_mode={config.audio_replacement_mode!r}",
         f"use_worker={config.use_worker}",
         f"sample_rate={audio.sample_rate}",
         f"channels={audio.channels}",

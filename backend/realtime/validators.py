@@ -1,6 +1,35 @@
 from math import isfinite
+import re
 
-from .message_types import KEY_STATE, MAMMOTH_HEALTH, MAMMOTH_STATE, PLAYER_STATE, SETUP_PLACEMENT, TEACHER_STATE
+from .message_types import (
+    KEY_STATE,
+    MAMMOTH_HEALTH,
+    MAMMOTH_STATE,
+    PLAYER_STATE,
+    SETUP_PLACEMENT,
+    TEACHER_STATE,
+    VOICE_PRESENCE,
+    WEBRTC_ANSWER,
+    WEBRTC_ICE,
+    WEBRTC_OFFER,
+)
+
+PLAYER_ID_PATTERN = re.compile(r"^player_[1-9][0-9]*$")
+MAX_SDP_LENGTH = 128_000
+MAX_ICE_CANDIDATE_LENGTH = 8_192
+MAX_SDP_MID_LENGTH = 64
+
+
+def is_valid_player_id(value) -> bool:
+    return isinstance(value, str) and PLAYER_ID_PATTERN.fullmatch(value) is not None
+
+
+def is_non_empty_limited_string(value, max_length: int) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= max_length
+
+
+def is_non_negative_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def is_vec3(value) -> bool:
@@ -183,6 +212,62 @@ def is_valid_mammoth_state(data) -> bool:
 
     authoritative_user_id = data.get("authoritativeUserId", 0)
     if not isinstance(authoritative_user_id, int) or authoritative_user_id < 0:
+        return False
+
+    return True
+
+
+def is_valid_webrtc_offer(data) -> bool:
+    return is_valid_webrtc_sdp_message(data, WEBRTC_OFFER, "offer")
+
+
+def is_valid_webrtc_answer(data) -> bool:
+    return is_valid_webrtc_sdp_message(data, WEBRTC_ANSWER, "answer")
+
+
+def is_valid_webrtc_sdp_message(data, expected_type: str, expected_sdp_type: str) -> bool:
+    if data.get("type") != expected_type:
+        return False
+
+    if not is_valid_player_id(data.get("targetPlayerId")):
+        return False
+
+    if data.get("sdpType") != expected_sdp_type:
+        return False
+
+    if not is_non_empty_limited_string(data.get("sdp"), MAX_SDP_LENGTH):
+        return False
+
+    return True
+
+
+def is_valid_webrtc_ice(data) -> bool:
+    if data.get("type") != WEBRTC_ICE:
+        return False
+
+    if not is_valid_player_id(data.get("targetPlayerId")):
+        return False
+
+    if not is_non_empty_limited_string(data.get("candidate"), MAX_ICE_CANDIDATE_LENGTH):
+        return False
+
+    if not is_non_empty_limited_string(data.get("sdpMid"), MAX_SDP_MID_LENGTH):
+        return False
+
+    if not is_non_negative_int(data.get("sdpMLineIndex")):
+        return False
+
+    return True
+
+
+def is_valid_voice_presence(data) -> bool:
+    if data.get("type") != VOICE_PRESENCE:
+        return False
+
+    if not isinstance(data.get("isReady"), bool):
+        return False
+
+    if not isinstance(data.get("isMuted", False), bool):
         return False
 
     return True

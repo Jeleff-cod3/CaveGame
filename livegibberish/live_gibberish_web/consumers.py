@@ -6,6 +6,7 @@ import logging
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -188,9 +189,11 @@ class AudioConsumer(AsyncWebsocketConsumer):
                 f"input_wav={str(Path(input_path).resolve())!r}",
                 f"output_wav={str(Path(output_path).resolve())!r}",
                 f"recorded_pcm_bytes={self.session_bytes}",
+                f"recorded_input_seconds={_pcm_bytes_to_seconds(self.session_bytes, self.config):.3f}",
             ],
         )
         await self.send(text_data=json.dumps({"type": "session", "status": "processing"}))
+        processing_started = perf_counter()
         try:
             summary = await asyncio.to_thread(_process_recorded_session, self.runtime_config, input_path, output_path)
         except Exception as exc:
@@ -207,6 +210,13 @@ class AudioConsumer(AsyncWebsocketConsumer):
             )
             return
 
+        processing_seconds = perf_counter() - processing_started
+        benchmark = _session_benchmark(
+            input_bytes=self.session_bytes,
+            output_bytes=int(summary["bytes"]),
+            processing_seconds=processing_seconds,
+            config=self.config,
+        )
         update_config({"enrollment_wav": str(Path(input_path).resolve())})
         _console_log(
             "SESSION SAVED",
@@ -214,7 +224,14 @@ class AudioConsumer(AsyncWebsocketConsumer):
                 f"input_wav={str(Path(input_path).resolve())!r}",
                 f"output_wav={str(Path(output_path).resolve())!r}",
                 f"segments={summary['segments']}",
-                f"output_pcm_bytes={summary['bytes']}",
+                f"input_pcm_bytes={benchmark['input_bytes']}",
+                f"output_pcm_bytes={benchmark['output_bytes']}",
+                f"input_seconds={benchmark['input_seconds']:.3f}",
+                f"output_seconds={benchmark['output_seconds']:.3f}",
+                f"output_to_input_ratio={benchmark['output_to_input_ratio']:.3f}",
+                f"processing_seconds={benchmark['processing_seconds']:.3f}",
+                f"processing_to_input_ratio={benchmark['processing_to_input_ratio']:.3f}",
+                f"realtime_speed={benchmark['realtime_speed']:.3f}x",
             ],
         )
         await self.send(
@@ -227,6 +244,7 @@ class AudioConsumer(AsyncWebsocketConsumer):
                     "output_wav": str(Path(output_path).resolve()),
                     "segments": summary["segments"],
                     "bytes": summary["bytes"],
+                    "benchmark": benchmark,
                 }
             )
         )
@@ -273,6 +291,12 @@ class AudioConsumer(AsyncWebsocketConsumer):
                         for item, replacement in zip(result.filtered_words, result.replacements)
                     ],
                     "bytes": len(result.output_pcm),
+                    "input_duration_seconds": result.speech.end_timestamp - result.speech.start_timestamp,
+                    "output_duration_seconds": _pcm_bytes_to_seconds(len(result.output_pcm), self.config),
+                    "output_to_input_ratio": _safe_ratio(
+                        _pcm_bytes_to_seconds(len(result.output_pcm), self.config),
+                        result.speech.end_timestamp - result.speech.start_timestamp,
+                    ),
                 }
             )
         )
@@ -314,6 +338,39 @@ def _process_recorded_session(config: RuntimeConfig, input_path: Path, output_pa
 def _write_processed_segment(sink: WavSink, result: ProcessedSegment) -> int:
     sink.write(result.output_pcm)
     return len(result.output_pcm)
+
+
+def _session_benchmark(
+    input_bytes: int,
+    output_bytes: int,
+    processing_seconds: float,
+    config: AudioConfig,
+) -> dict[str, float | int]:
+    input_seconds = _pcm_bytes_to_seconds(input_bytes, config)
+    output_seconds = _pcm_bytes_to_seconds(output_bytes, config)
+    return {
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
+        "input_seconds": input_seconds,
+        "output_seconds": output_seconds,
+        "output_to_input_ratio": _safe_ratio(output_seconds, input_seconds),
+        "processing_seconds": processing_seconds,
+        "processing_to_input_ratio": _safe_ratio(processing_seconds, input_seconds),
+        "realtime_speed": _safe_ratio(input_seconds, processing_seconds),
+    }
+
+
+def _pcm_bytes_to_seconds(byte_count: int, config: AudioConfig) -> float:
+    bytes_per_second = config.sample_rate * config.channels * config.sample_width_bytes
+    if bytes_per_second <= 0:
+        return 0.0
+    return max(0.0, byte_count / bytes_per_second)
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    if denominator <= 0.0:
+        return 0.0
+    return numerator / denominator
 
 
 def _console_log(title: str, lines: list[str]) -> None:

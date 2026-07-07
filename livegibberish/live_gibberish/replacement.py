@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from .audio_bank import SampleBank
 from .audio_io import AudioConfig
 from .gibberish import GibberishMapper, GibberishToken
 from .pipeline import FilteredWordSegment
@@ -35,17 +36,30 @@ class ReplacementEngine:
     def __init__(
         self,
         mapper: GibberishMapper,
-        tts: TtsEngine,
+        tts: Optional[TtsEngine],
         config: AudioConfig = AudioConfig(),
         speaker_profile: Optional[SpeakerProfile] = None,
+        sample_bank: Optional[SampleBank] = None,
     ) -> None:
         self.mapper = mapper
         self.tts = tts
         self.config = config
         self.speaker_profile = speaker_profile
+        self.sample_bank = sample_bank
 
     def replace(self, word_segment: FilteredWordSegment) -> ReplacementSegment:
         if not word_segment.needs_replacement:
+            if self.sample_bank and self.sample_bank.has_whitelist_word(word_segment.decision.normalized_word):
+                target_duration = word_segment.audio.end - word_segment.audio.start
+                output_pcm = self.sample_bank.render_whitelist_word(
+                    word_segment.decision.normalized_word,
+                    target_duration,
+                )
+                return ReplacementSegment(
+                    source=word_segment,
+                    output_pcm=output_pcm,
+                    is_original_audio=True,
+                )
             return ReplacementSegment(
                 source=word_segment,
                 output_pcm=word_segment.audio.pcm,
@@ -64,9 +78,24 @@ class ReplacementEngine:
                 f"syllables={gibberish.syllable_count}",
             ],
         )
+        target_duration = word_segment.audio.end - word_segment.audio.start
+        if self.sample_bank:
+            output_pcm = self.sample_bank.render_gibberish(
+                gibberish.text,
+                target_duration,
+            )
+            return ReplacementSegment(
+                source=word_segment,
+                output_pcm=output_pcm,
+                is_original_audio=False,
+                gibberish=gibberish,
+            )
+
+        if self.tts is None:
+            raise ValueError("ReplacementEngine needs either a sample bank or a TTS engine.")
+
         voice_id = self.speaker_profile.voice_id if self.speaker_profile else None
         synthesized = self.tts.synthesize(gibberish.text, self.config, voice_id=voice_id)
-        target_duration = word_segment.audio.end - word_segment.audio.start
         output_pcm = match_source_character(
             synthesized.pcm,
             word_segment.audio.pcm,

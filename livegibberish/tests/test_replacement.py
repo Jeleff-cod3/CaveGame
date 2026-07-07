@@ -1,6 +1,7 @@
 import unittest
 
 from live_gibberish.asr import WordResult
+from live_gibberish.audio_bank import AudioBankClip, SampleBank
 from live_gibberish.audio_io import AudioConfig
 from live_gibberish.buffer import AudioSlice
 from live_gibberish.filtering import WordDecision
@@ -62,6 +63,38 @@ class ReplacementTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             engine.replace(segment)
+
+    def test_sample_bank_replaces_without_calling_tts(self):
+        config = AudioConfig()
+        sample_bank = SampleBank(
+            user_id="banked",
+            whitelist={
+                "hello": AudioBankClip("hello", b"\x06\x00" * config.samples_per_frame * 2, 0.04),
+            },
+            gibberish={
+                "short": (AudioBankClip("short-one", b"\x07\x00" * config.samples_per_frame * 2, 0.04),),
+                "medium": (AudioBankClip("medium-one", b"\x08\x00" * config.samples_per_frame * 30, 0.60),),
+                "long": (AudioBankClip("long-one", b"\x09\x00" * config.samples_per_frame * 60, 1.20),),
+            },
+            config=config,
+        )
+        allowed = FilteredWordSegment(
+            decision=WordDecision(WordResult("hello", 0.0, 0.04, 1.0), "hello", True, "whitelist"),
+            audio=AudioSlice(pcm=b"\x03\x00" * config.samples_per_frame * 2, start=0.0, end=0.04),
+        )
+        blocked = FilteredWordSegment(
+            decision=WordDecision(WordResult("danger", 0.0, 0.04, 1.0), "danger", False, "not-whitelisted"),
+            audio=AudioSlice(pcm=b"\x03\x00" * config.samples_per_frame * 2, start=0.0, end=0.04),
+        )
+        engine = ReplacementEngine(GibberishMapper(seed="secret"), FailingTtsEngine(), config=config, sample_bank=sample_bank)
+
+        allowed_replacement = engine.replace(allowed)
+        blocked_replacement = engine.replace(blocked)
+
+        self.assertTrue(allowed_replacement.is_original_audio)
+        self.assertFalse(blocked_replacement.is_original_audio)
+        self.assertEqual(len(allowed_replacement.output_pcm), config.bytes_per_frame * 2)
+        self.assertEqual(len(blocked_replacement.output_pcm), config.bytes_per_frame * 2)
 
     def test_assembler_preserves_segment_duration_with_silence_gaps(self):
         config = AudioConfig()

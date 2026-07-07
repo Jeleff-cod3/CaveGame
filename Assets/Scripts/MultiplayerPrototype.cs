@@ -109,6 +109,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private MammothHealthDto pendingMammothHealth;
     private EnemyHealth cachedMammothEnemy;
     private bool mammothRuntimeConfigured;
+    private VoiceSignalingController voiceSignaling;
+    private VoicePeerManager voicePeerManager;
     private float nextMammothStateSendTime;
     private float lastMammothStateSendTime;
     private bool hasSentInitialMammothState;
@@ -123,6 +125,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     [SerializeField] private bool logSocketPayloads = false;
     [SerializeField] private bool logRemoteStateDecisions = true;
     [SerializeField] private bool logHeartbeatMessages = false;
+    [SerializeField] private VoiceChatConfig voiceChatConfig = new VoiceChatConfig();
 
     private string debugClientTag;
     private int lobbyMessagesReceived;
@@ -288,6 +291,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         isShuttingDown = true;
         suppressLobbyReconnect = true;
+        DisposeVoicePeerManager();
         DetachWorldChunkRendererPlayers();
         lobbySocket?.Close();
         gameSocket?.Close();
@@ -799,6 +803,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             RemoteCubeController remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[key] = remote;
             RegisterWorldChunkRendererPlayer(remote.transform, false);
+            voicePeerManager?.RefreshPeerTransform(key);
             remoteStatesSpawned++;
             NetLog($"Pre-spawned remote cube key={key}, slot={player.slot}, userId={player.userId}, pos={remoteObject.transform.position}");
         }
@@ -839,6 +844,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             gameHeartbeatCloseRequested = false;
             gameSocketReconnectAttempts = 0;
             nextGameReconnectAllowedAt = 0f;
+            InitializeVoiceSignaling(socketClient);
         };
         socketClient.ErrorReceived += error =>
         {
@@ -880,6 +886,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 NetLog($"Game socket close cadence: {lastGameSocketCloseGapMs:0}ms since previous close.", warning);
             }
             LogSocketTrace("Game socket trace on close", socketClient, warning, intentionalClose, closeReason);
+            DisposeVoicePeerManager();
             if (!intentionalClose && isCurrentSocket)
             {
                 QueueGameReconnectIfNeeded();
@@ -986,6 +993,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 LobbyEventDto left = JsonUtility.FromJson<LobbyEventDto>(json);
                 RemoveRemotePlayer(BuildPlayerKey(left != null ? left.playerId : null, left != null ? left.userId : 0));
                 break;
+            default:
+                voiceSignaling?.HandleSocketMessage(json);
+                break;
         }
     }
 
@@ -1037,6 +1047,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[remoteKey] = remote;
             RegisterWorldChunkRendererPlayer(remote.transform, false);
+            voicePeerManager?.RefreshPeerTransform(remoteKey);
             remoteStatesSpawned++;
             if (logRemoteStateDecisions)
             {
@@ -1126,9 +1137,84 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
+        voicePeerManager?.RemovePeer(playerId);
         worldChunkRenderer?.UnregisterTrackedPlayer(remote.transform);
         Destroy(remote.gameObject);
         remoteCubes.Remove(playerId);
+    }
+
+    private void InitializeVoiceSignaling(CaveGameSocketClient socketClient)
+    {
+        string localPlayerId = GetLocalPlayerId();
+        if (string.IsNullOrWhiteSpace(localPlayerId))
+        {
+            NetLog("Voice signaling skipped because local player id is not available yet.", true);
+            return;
+        }
+
+        DisposeVoicePeerManager();
+        voiceSignaling = new VoiceSignalingController(
+            localPlayerId,
+            socketClient.SendJson,
+            FindRemotePlayerTransform,
+            voiceChatConfig,
+            message => NetLog(message)
+        );
+        voiceSignaling.OnInterestSnapshotReceived += HandleVoiceInterestSnapshot;
+        voicePeerManager = new VoicePeerManager(
+            this,
+            localPlayerId,
+            voiceSignaling,
+            FindRemotePlayerTransform,
+            voiceChatConfig,
+            message => NetLog(message)
+        );
+        NetLog($"Voice signaling initialized for localPlayerId={localPlayerId}.");
+    }
+
+    private void HandleVoiceInterestSnapshot(VoiceInterestSnapshotDto snapshot)
+    {
+        if (snapshot?.audiblePeers == null)
+        {
+            return;
+        }
+
+        foreach (VoicePeerInterestDto peer in snapshot.audiblePeers)
+        {
+            if (peer == null || string.IsNullOrWhiteSpace(peer.playerId))
+            {
+                continue;
+            }
+
+            Transform remoteTransform = FindRemotePlayerTransform(peer.playerId);
+            if (voiceChatConfig.debugLogging)
+            {
+                string hasTransform = remoteTransform != null ? "yes" : "no";
+                NetLog($"Voice audible peer={peer.playerId}, distance={peer.distance:0.00}, gain={peer.gain:0.00}, transform={hasTransform}");
+            }
+        }
+    }
+
+    private Transform FindRemotePlayerTransform(string playerId)
+    {
+        if (string.IsNullOrWhiteSpace(playerId))
+        {
+            return null;
+        }
+
+        if (remoteCubes.TryGetValue(playerId, out RemoteCubeController remote) && remote != null)
+        {
+            return remote.transform;
+        }
+
+        return null;
+    }
+
+    private void DisposeVoicePeerManager()
+    {
+        voicePeerManager?.Dispose();
+        voicePeerManager = null;
+        voiceSignaling = null;
     }
 
     private void RegisterWorldChunkRendererPlayer(Transform playerTransform, bool isPrimaryPlayer)
@@ -1613,6 +1699,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         if (gameSocket != null)
         {
             sb.Append(", gameSocket={").Append(gameSocket.GetDebugSnapshot()).Append("}");
+        }
+        if (voicePeerManager != null)
+        {
+            sb.Append(", voice={").Append(voicePeerManager.GetDebugSnapshot()).Append("}");
         }
         Debug.Log(sb.ToString());
     }

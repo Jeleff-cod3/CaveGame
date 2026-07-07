@@ -15,6 +15,12 @@ SETUP_FINALIZED = "setup_finalized"
 SETUP_PLACEMENT = "setup_placement"
 SETUP_SNAPSHOT = "setup_snapshot"
 TEACHER_STATE = "teacher_state"
+VOICE_INTEREST_SNAPSHOT = "voice_interest_snapshot"
+VOICE_PEER_LEFT = "voice_peer_left"
+VOICE_PRESENCE = "voice_presence"
+WEBRTC_ANSWER = "webrtc_answer"
+WEBRTC_ICE = "webrtc_ice"
+WEBRTC_OFFER = "webrtc_offer"
 
 ALLOWED_CLIENT_GAME_TYPES = {
     PLAYER_STATE,
@@ -22,6 +28,10 @@ ALLOWED_CLIENT_GAME_TYPES = {
     MAMMOTH_STATE,
     SETUP_PLACEMENT,
     TEACHER_STATE,
+    VOICE_PRESENCE,
+    WEBRTC_ANSWER,
+    WEBRTC_ICE,
+    WEBRTC_OFFER,
     KEY_STATE,
     PING,
     HEARTBEAT,

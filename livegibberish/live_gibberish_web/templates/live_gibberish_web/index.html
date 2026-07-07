@@ -102,11 +102,47 @@
       gap: 10px;
     }
 
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 28px;
+      margin-top: 8px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill.ok {
+      border-color: color-mix(in srgb, var(--ok), var(--line) 55%);
+      color: var(--ok);
+    }
+
+    .pill.bad {
+      border-color: color-mix(in srgb, var(--bad), var(--line) 55%);
+      color: var(--bad);
+    }
+
     .actions {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 14px;
+    }
+
+    .hidden-file {
+      display: none;
     }
 
     button {
@@ -218,12 +254,68 @@
     <div class="grid">
       <div>
         <section>
+          <h2>Audio Bank</h2>
+          <label for="bankUser">User</label>
+          <input id="bankUser" value="{{ status.audio_bank_user }}" autocomplete="off">
+
+          <label for="bankWord">Whitelist Word</label>
+          <input id="bankWord" autocomplete="off">
+          <div class="actions">
+            <button id="recordWord">Record Word</button>
+            <button id="stopWord" class="danger">Stop Word</button>
+          </div>
+          <div id="bankWords" class="list"></div>
+
+          <div class="row">
+            <div>
+              <label for="gibberishBucket">Gibberish Bucket</label>
+              <select id="gibberishBucket">
+                <option value="short">short</option>
+                <option value="medium">medium</option>
+                <option value="long">long</option>
+              </select>
+            </div>
+            <div>
+              <label for="gibberishName">Clip Name</label>
+              <input id="gibberishName" autocomplete="off">
+            </div>
+          </div>
+          <div class="actions">
+            <button id="recordGibberish">Record Gibberish</button>
+            <button id="stopGibberish" class="danger">Stop Gibberish</button>
+          </div>
+          <div id="gibberishClips" class="list"></div>
+
+          <div class="actions">
+            <button id="validateBank" class="secondary">Validate Bank</button>
+            <button id="useBankConfig" class="secondary">Use Bank Config</button>
+          </div>
+          <pre id="bankStatusJson">{}</pre>
+        </section>
+
+        <section>
           <h2>Config</h2>
           <label for="whitelist">Whitelist Words</label>
           <input id="whitelist" value='{{ status.whitelist|join:", " }}' autocomplete="off">
 
           <label for="seed">Seed</label>
           <input id="seed" value="{{ status.seed }}" autocomplete="off">
+
+          <label for="audioBankUser">Audio Bank User</label>
+          <input id="audioBankUser" value="{{ status.audio_bank_user }}" autocomplete="off">
+
+          <label for="audioReplacementMode">Audio Replacement Mode</label>
+          <select id="audioReplacementMode">
+            <option value="original_gibberish">original_gibberish</option>
+            <option value="prerecorded_sample_substitution">prerecorded_sample_substitution</option>
+          </select>
+
+          <label for="audioBankMissingWordPolicy">Missing Word Fallback</label>
+          <select id="audioBankMissingWordPolicy">
+            <option value="strict">strict</option>
+            <option value="safe">safe</option>
+            <option value="debug">debug</option>
+          </select>
 
           <label for="asrModel">GPU ASR Model</label>
           <input id="asrModel" value="{{ status.asr_model }}" placeholder="hello danger">
@@ -242,15 +334,18 @@
 
           <div class="actions">
             <button id="saveConfig">Save Config</button>
+            <button id="downloadConfig" class="secondary">Download Config JSON</button>
+            <button id="loadConfig" class="secondary">Load Config JSON</button>
             <button id="refreshStatus" class="secondary">Refresh</button>
           </div>
+          <input id="configFile" class="hidden-file" type="file" accept="application/json,.json">
         </section>
 
         <section>
           <h2>Microphone</h2>
           <div class="actions">
-            <button id="startMic">Record</button>
-            <button id="stopMic" class="danger">Stop</button>
+            <button id="startMic">Start Filter</button>
+            <button id="stopMic" class="danger">Stop Filter</button>
           </div>
         </section>
 
@@ -267,7 +362,9 @@
             <div class="metric"><span>Frames Sent</span><strong id="framesSent">0</strong></div>
             <div class="metric"><span>Segments</span><strong id="segmentsSeen">0</strong></div>
             <div class="metric"><span>Audio Bytes</span><strong id="audioBytes">0</strong></div>
-            <div class="metric"><span>Sample Rate</span><strong>16k</strong></div>
+            <div class="metric"><span>Input Seconds</span><strong id="inputSeconds">0.00</strong></div>
+            <div class="metric"><span>Output Seconds</span><strong id="outputSeconds">0.00</strong></div>
+            <div class="metric"><span>Speed</span><strong id="realtimeSpeed">0.00x</strong></div>
           </div>
           <div id="log" class="log"></div>
         </section>
@@ -290,6 +387,9 @@
       framesSent: 0,
       segmentsSeen: 0,
       audioBytes: 0,
+      inputSeconds: 0,
+      outputSeconds: 0,
+      realtimeSpeed: 0,
       targetRate: 16000,
       frameSamples: 320,
       processorReady: false,
@@ -297,21 +397,36 @@
       recordingPromise: null,
       recordingResolver: null,
       configPromise: null,
-      configResolver: null
+      configResolver: null,
+      bankRecorder: null
     };
 
     const elements = {
       connectionStatus: document.getElementById("connectionStatus"),
+      bankUser: document.getElementById("bankUser"),
+      bankWord: document.getElementById("bankWord"),
+      gibberishBucket: document.getElementById("gibberishBucket"),
+      gibberishName: document.getElementById("gibberishName"),
+      bankWords: document.getElementById("bankWords"),
+      gibberishClips: document.getElementById("gibberishClips"),
+      bankStatusJson: document.getElementById("bankStatusJson"),
       whitelist: document.getElementById("whitelist"),
       seed: document.getElementById("seed"),
+      audioBankUser: document.getElementById("audioBankUser"),
+      audioReplacementMode: document.getElementById("audioReplacementMode"),
+      audioBankMissingWordPolicy: document.getElementById("audioBankMissingWordPolicy"),
       asrModel: document.getElementById("asrModel"),
       confidence: document.getElementById("confidence"),
       bufferSeconds: document.getElementById("bufferSeconds"),
+      configFile: document.getElementById("configFile"),
       statusJson: document.getElementById("statusJson"),
       log: document.getElementById("log"),
       framesSent: document.getElementById("framesSent"),
       segmentsSeen: document.getElementById("segmentsSeen"),
-      audioBytes: document.getElementById("audioBytes")
+      audioBytes: document.getElementById("audioBytes"),
+      inputSeconds: document.getElementById("inputSeconds"),
+      outputSeconds: document.getElementById("outputSeconds"),
+      realtimeSpeed: document.getElementById("realtimeSpeed")
     };
     const startMicButton = document.getElementById("startMic");
     const stopMicButton = document.getElementById("stopMic");
@@ -320,11 +435,24 @@
     renderStatus(initialStatus);
 
     document.getElementById("saveConfig").addEventListener("click", saveConfig);
+    document.getElementById("downloadConfig").addEventListener("click", downloadConfigJson);
+    document.getElementById("loadConfig").addEventListener("click", () => elements.configFile.click());
+    elements.configFile.addEventListener("change", loadConfigJson);
     document.getElementById("refreshStatus").addEventListener("click", refreshStatus);
     document.getElementById("startMic").addEventListener("click", startMic);
     document.getElementById("stopMic").addEventListener("click", stopSession);
+    document.getElementById("recordWord").addEventListener("click", startWordRecording);
+    document.getElementById("stopWord").addEventListener("click", stopBankRecording);
+    document.getElementById("recordGibberish").addEventListener("click", startGibberishRecording);
+    document.getElementById("stopGibberish").addEventListener("click", stopBankRecording);
+    document.getElementById("validateBank").addEventListener("click", validateBank);
+    document.getElementById("useBankConfig").addEventListener("click", useBankConfig);
+    elements.bankUser.addEventListener("input", () => {
+      elements.audioBankUser.value = elements.bankUser.value.trim();
+    });
     updateModelHint();
     updateStartButton();
+    validateBank();
 
     async function saveConfig() {
       const payload = readConfig();
@@ -336,6 +464,46 @@
       const data = await response.json();
       renderStatus(data.config || data);
       appendLog("Config saved");
+      return data.config || data;
+    }
+
+    function downloadConfigJson() {
+      const config = readConfig();
+      const filePayload = {
+        live_gibberish_config_version: 1,
+        saved_at: new Date().toISOString(),
+        config
+      };
+      const blob = new Blob([JSON.stringify(filePayload, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      const user = (config.audio_bank_user || "default").replace(/[^a-zA-Z0-9_.-]+/g, "-");
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = `live-gibberish-${user}-config.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      appendLog("Config JSON downloaded");
+    }
+
+    async function loadConfigJson() {
+      const file = elements.configFile.files && elements.configFile.files[0];
+      elements.configFile.value = "";
+      if (!file) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(await file.text());
+        const config = normalizeLoadedConfig(parsed);
+        applyConfigToForm(config);
+        const saved = await saveConfig();
+        await validateBank();
+        renderStatus(saved);
+        appendLog(`Config JSON loaded: ${escapeHtml(file.name)}`);
+      } catch (error) {
+        appendLog(`Config JSON error: ${escapeHtml(error.message || error)}`);
+      }
     }
 
     async function refreshStatus() {
@@ -345,16 +513,223 @@
       appendLog("Status refreshed");
     }
 
+    async function startWordRecording() {
+      const word = elements.bankWord.value.trim();
+      if (!word) {
+        appendLog("Whitelist word is empty");
+        return;
+      }
+      await startBankRecording({ kind: "whitelist", word });
+    }
+
+    async function startGibberishRecording() {
+      const bucket = elements.gibberishBucket.value;
+      const name = elements.gibberishName.value.trim() || `${bucket}-${Date.now()}`;
+      await startBankRecording({ kind: "gibberish", bucket, name });
+    }
+
+    async function startBankRecording(metadata) {
+      if (state.bankRecorder) {
+        appendLog("Bank recorder is already running");
+        return;
+      }
+      const audioContext = new AudioContext();
+      await audioContext.resume();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(2048, 1, 1);
+      const samples = [];
+      processor.onaudioprocess = event => {
+        const input = event.inputBuffer.getChannelData(0);
+        const resampled = resample(input, audioContext.sampleRate, state.targetRate);
+        for (const sample of resampled) {
+          samples.push(sample);
+        }
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      state.bankRecorder = { audioContext, stream, source, processor, samples, metadata };
+      elements.connectionStatus.textContent = "Bank Recording";
+      appendLog(metadata.kind === "whitelist" ? `Recording word: ${escapeHtml(metadata.word)}` : `Recording gibberish: ${escapeHtml(metadata.bucket)}`);
+    }
+
+    async function stopBankRecording() {
+      const recorder = state.bankRecorder;
+      if (!recorder) {
+        appendLog("No bank recording is active");
+        return;
+      }
+      recorder.processor.disconnect();
+      recorder.source.disconnect();
+      recorder.stream.getTracks().forEach(track => track.stop());
+      await recorder.audioContext.close();
+      state.bankRecorder = null;
+      elements.connectionStatus.textContent = "Uploading";
+      try {
+        const wav = encodeWav(recorder.samples, state.targetRate);
+        const manifest = await uploadBankRecording(recorder.metadata, wav);
+        renderBankManifest(manifest);
+        syncWhitelistFromBank(manifest);
+        await validateBank();
+        elements.connectionStatus.textContent = "Idle";
+        appendLog("Bank recording saved");
+      } catch (error) {
+        elements.connectionStatus.textContent = "Error";
+        appendLog(`Bank recording error: ${escapeHtml(error.message || error)}`);
+      }
+    }
+
+    async function uploadBankRecording(metadata, wav) {
+      const form = new FormData();
+      form.append("user_id", bankUser());
+      form.append("kind", metadata.kind);
+      if (metadata.kind === "whitelist") {
+        form.append("word", metadata.word);
+      } else {
+        form.append("bucket", metadata.bucket);
+        form.append("name", metadata.name);
+      }
+      form.append("file", wav, `${metadata.kind}-${Date.now()}.wav`);
+      const response = await fetch("/api/audio-bank/recording/", {
+        method: "POST",
+        body: form
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = await response.json();
+      return data.manifest;
+    }
+
+    async function validateBank() {
+      const words = readWhitelistWords();
+      const params = new URLSearchParams();
+      params.set("user_id", bankUser());
+      if (words.length) {
+        params.set("whitelist", words.join(","));
+      }
+      const response = await fetch(`/api/audio-bank/status/?${params.toString()}`);
+      const data = await response.json();
+      elements.bankStatusJson.textContent = JSON.stringify(data.validation || data, null, 2);
+      renderBankManifest(data.manifest || {});
+      appendLog(data.ok ? "Audio bank valid" : "Audio bank needs recordings");
+      return data;
+    }
+
+    async function useBankConfig() {
+      elements.audioBankUser.value = bankUser();
+      elements.audioReplacementMode.value = "prerecorded_sample_substitution";
+      if (!elements.audioBankMissingWordPolicy.value) {
+        elements.audioBankMissingWordPolicy.value = "strict";
+      }
+      const data = await validateBank();
+      await saveConfig();
+      appendLog(data.ok ? "Bank config saved" : "Bank config saved with validation issues");
+    }
+
+    function bankUser() {
+      const user = elements.bankUser.value.trim() || elements.audioBankUser.value.trim() || "default";
+      elements.bankUser.value = user;
+      elements.audioBankUser.value = user;
+      return user;
+    }
+
+    function readWhitelistWords() {
+      return elements.whitelist.value.split(/[\s,;]+/).map(word => word.trim()).filter(Boolean);
+    }
+
+    function syncWhitelistFromBank(manifest) {
+      const current = readWhitelistWords();
+      const seen = new Set(current.map(word => word.toLowerCase()));
+      for (const word of Object.keys(manifest.whitelist || {})) {
+        if (!seen.has(word.toLowerCase())) {
+          current.push(word);
+          seen.add(word.toLowerCase());
+        }
+      }
+      elements.whitelist.value = current.join(", ");
+    }
+
+    function renderBankManifest(manifest) {
+      const whitelist = manifest.whitelist || {};
+      const gibberish = manifest.gibberish || {};
+      elements.bankWords.innerHTML = "";
+      for (const word of Object.keys(whitelist).sort()) {
+        elements.bankWords.appendChild(pill(word, "ok"));
+      }
+      if (!Object.keys(whitelist).length) {
+        elements.bankWords.appendChild(pill("no words", "bad"));
+      }
+      elements.gibberishClips.innerHTML = "";
+      for (const bucket of ["short", "medium", "long"]) {
+        const count = (gibberish[bucket] || []).length;
+        elements.gibberishClips.appendChild(pill(`${bucket}: ${count}`, count ? "ok" : "bad"));
+      }
+    }
+
+    function pill(text, stateName) {
+      const item = document.createElement("span");
+      item.className = `pill ${stateName || ""}`;
+      item.textContent = text;
+      return item;
+    }
+
     function readConfig() {
       return {
-        whitelist: elements.whitelist.value.split(/[\s,;]+/).map(word => word.trim()).filter(Boolean),
+        whitelist: readWhitelistWords(),
         seed: elements.seed.value.trim() || "cavegame-live-gibberish",
+        audio_bank_user: elements.audioBankUser.value.trim(),
+        audio_replacement_mode: elements.audioReplacementMode.value,
+        audio_bank_missing_word_policy: elements.audioBankMissingWordPolicy.value,
         asr_backend: ASR_BACKEND,
         asr_model: elements.asrModel.value,
         tts_backend: TTS_BACKEND,
         confidence: Number(elements.confidence.value || 0.7),
         buffer_seconds: Number(elements.bufferSeconds.value || 5)
       };
+    }
+
+    function normalizeLoadedConfig(parsed) {
+      const config = parsed && parsed.config ? parsed.config : parsed;
+      if (!config || typeof config !== "object" || Array.isArray(config)) {
+        throw new Error("Config JSON must contain an object.");
+      }
+      return config;
+    }
+
+    function applyConfigToForm(config) {
+      if (config.whitelist !== undefined) {
+        elements.whitelist.value = Array.isArray(config.whitelist) ? config.whitelist.join(", ") : String(config.whitelist || "");
+      }
+      if (config.seed !== undefined) {
+        elements.seed.value = String(config.seed || "");
+      }
+      if (config.audio_bank_user !== undefined) {
+        elements.audioBankUser.value = String(config.audio_bank_user || "");
+        elements.bankUser.value = String(config.audio_bank_user || "") || elements.bankUser.value || "default";
+      }
+      if (config.audio_replacement_mode !== undefined) {
+        elements.audioReplacementMode.value = String(config.audio_replacement_mode || "original_gibberish");
+      }
+      if (config.audio_bank_missing_word_policy !== undefined) {
+        elements.audioBankMissingWordPolicy.value = String(config.audio_bank_missing_word_policy || "strict");
+      }
+      if (config.asr_model !== undefined) {
+        elements.asrModel.value = String(config.asr_model || "");
+      }
+      if (config.confidence !== undefined) {
+        elements.confidence.value = Number(config.confidence);
+      }
+      if (config.buffer_seconds !== undefined) {
+        elements.bufferSeconds.value = Number(config.buffer_seconds);
+      }
     }
 
     function connectSocket() {
@@ -511,6 +886,8 @@
       if (data.type === "segment") {
         state.segmentsSeen += 1;
         elements.segmentsSeen.textContent = String(state.segmentsSeen);
+        state.outputSeconds += Number(data.output_duration_seconds || 0);
+        elements.outputSeconds.textContent = state.outputSeconds.toFixed(2);
         const words = (data.words || []).map(word => {
           const cls = word.allowed ? "allowed" : "blocked";
           const replacement = word.replacement ? ` -> ${word.replacement}` : "";
@@ -518,7 +895,7 @@
           const reason = word.reason ? ` (${word.reason})` : "";
           return `<span class="${cls}">${escapeHtml(original)}${escapeHtml(word.word || "?")}</span>${escapeHtml(replacement)}${escapeHtml(reason)}`;
         }).join(", ");
-        appendLog(`Segment ${data.start.toFixed(2)}-${data.end.toFixed(2)}s: ${escapeHtml(data.text || "")}\n${words}`);
+        appendLog(`Segment ${data.start.toFixed(2)}-${data.end.toFixed(2)}s: ${escapeHtml(data.text || "")}\nInput: ${formatSeconds(data.input_duration_seconds)} Output: ${formatSeconds(data.output_duration_seconds)} Ratio: ${formatRatio(data.output_to_input_ratio)}\n${words}`);
       } else if (data.type === "ready") {
         state.processorReady = Boolean(data.processor_ready);
         updateStartButton();
@@ -557,7 +934,8 @@
         } else if (data.ok) {
           state.recordingOnly = false;
           elements.connectionStatus.textContent = "Done";
-          appendLog(`Output WAV: ${escapeHtml(data.output_wav || "")}\nInput WAV: ${escapeHtml(data.input_wav || "")}\nSegments: ${data.segments || 0}`);
+          renderBenchmark(data.benchmark || {});
+          appendLog(`Output WAV: ${escapeHtml(data.output_wav || "")}\nInput WAV: ${escapeHtml(data.input_wav || "")}\nSegments: ${data.segments || 0}\nInput: ${formatSeconds(data.benchmark && data.benchmark.input_seconds)} Output: ${formatSeconds(data.benchmark && data.benchmark.output_seconds)} Processing: ${formatSeconds(data.benchmark && data.benchmark.processing_seconds)} Speed: ${formatSpeed(data.benchmark && data.benchmark.realtime_speed)}`);
         } else {
           state.recordingOnly = false;
           elements.connectionStatus.textContent = "Error";
@@ -571,6 +949,8 @@
     function handleAudioMessage(buffer) {
       state.audioBytes += buffer.byteLength;
       elements.audioBytes.textContent = String(state.audioBytes);
+      state.outputSeconds = state.audioBytes / (state.targetRate * 2);
+      elements.outputSeconds.textContent = state.outputSeconds.toFixed(2);
       const samples = pcm16ToFloat32(buffer);
       playSamples(samples);
     }
@@ -614,10 +994,58 @@
       return samples;
     }
 
+    function encodeWav(samples, sampleRate) {
+      const pcm = floatSamplesToPcm16(samples);
+      const buffer = new ArrayBuffer(44 + pcm.length * 2);
+      const view = new DataView(buffer);
+      writeAscii(view, 0, "RIFF");
+      view.setUint32(4, 36 + pcm.length * 2, true);
+      writeAscii(view, 8, "WAVE");
+      writeAscii(view, 12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeAscii(view, 36, "data");
+      view.setUint32(40, pcm.length * 2, true);
+      for (let index = 0; index < pcm.length; index++) {
+        view.setInt16(44 + index * 2, pcm[index], true);
+      }
+      return new Blob([buffer], { type: "audio/wav" });
+    }
+
+    function floatSamplesToPcm16(samples) {
+      const pcm = new Int16Array(samples.length);
+      for (let index = 0; index < samples.length; index++) {
+        const sample = Math.max(-1, Math.min(1, samples[index]));
+        pcm[index] = sample < 0 ? sample * 32768 : sample * 32767;
+      }
+      return pcm;
+    }
+
+    function writeAscii(view, offset, text) {
+      for (let index = 0; index < text.length; index++) {
+        view.setUint8(offset + index, text.charCodeAt(index));
+      }
+    }
+
     function renderStatus(status) {
       elements.statusJson.textContent = JSON.stringify(status, null, 2);
       if (status.asr_model !== undefined) {
         elements.asrModel.value = status.asr_model || "";
+      }
+      if (status.audio_bank_user !== undefined) {
+        elements.audioBankUser.value = status.audio_bank_user || "";
+        elements.bankUser.value = status.audio_bank_user || elements.bankUser.value || "default";
+      }
+      if (status.audio_replacement_mode !== undefined) {
+        elements.audioReplacementMode.value = status.audio_replacement_mode || "original_gibberish";
+      }
+      if (status.audio_bank_missing_word_policy !== undefined) {
+        elements.audioBankMissingWordPolicy.value = status.audio_bank_missing_word_policy || "strict";
       }
       if (status.model_hint) {
         document.getElementById("modelHint").textContent = status.model_hint;
@@ -635,6 +1063,30 @@
       const entry = document.createElement("div");
       entry.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
       elements.log.prepend(entry);
+    }
+
+    function renderBenchmark(benchmark) {
+      state.inputSeconds = Number(benchmark.input_seconds || 0);
+      state.outputSeconds = Number(benchmark.output_seconds || 0);
+      state.realtimeSpeed = Number(benchmark.realtime_speed || 0);
+      elements.inputSeconds.textContent = state.inputSeconds.toFixed(2);
+      elements.outputSeconds.textContent = state.outputSeconds.toFixed(2);
+      elements.realtimeSpeed.textContent = formatSpeed(state.realtimeSpeed);
+    }
+
+    function formatSeconds(value) {
+      const number = Number(value || 0);
+      return `${number.toFixed(3)}s`;
+    }
+
+    function formatRatio(value) {
+      const number = Number(value || 0);
+      return `${number.toFixed(3)}x`;
+    }
+
+    function formatSpeed(value) {
+      const number = Number(value || 0);
+      return `${number.toFixed(2)}x`;
     }
 
     function escapeHtml(value) {
@@ -700,7 +1152,7 @@
     function updateStartButton() {
       startMicButton.disabled = false;
       stopMicButton.disabled = false;
-      startMicButton.textContent = "Record";
+      startMicButton.textContent = "Start Filter";
     }
 
     function resetRunMetrics() {
@@ -709,9 +1161,15 @@
       state.framesSent = 0;
       state.segmentsSeen = 0;
       state.audioBytes = 0;
+      state.inputSeconds = 0;
+      state.outputSeconds = 0;
+      state.realtimeSpeed = 0;
       elements.framesSent.textContent = "0";
       elements.segmentsSeen.textContent = "0";
       elements.audioBytes.textContent = "0";
+      elements.inputSeconds.textContent = "0.00";
+      elements.outputSeconds.textContent = "0.00";
+      elements.realtimeSpeed.textContent = "0.00x";
     }
   </script>
 </body>

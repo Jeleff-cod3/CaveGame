@@ -1,12 +1,18 @@
 import json
+import math
 import os
+import tempfile
 import unittest
+import wave
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "live_gibberish_web.settings")
 
 import django
 from channels.testing import WebsocketCommunicator
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 
 django.setup()
@@ -15,6 +21,22 @@ from live_gibberish_web.asgi import application
 from live_gibberish_web.app_state import update_config
 import live_gibberish_web.consumers as consumers
 from live_gibberish.audio_io import AudioConfig, WavSink
+
+
+def wav_bytes(sample_rate=8000, amplitude=8000, seconds=0.35):
+    sample_count = max(1, round(sample_rate * seconds))
+    samples = []
+    for index in range(sample_count):
+        value = round(math.sin(index / sample_rate * 440.0 * math.tau) * amplitude)
+        samples.append(int(value).to_bytes(2, "little", signed=True))
+    silence = b"\x00\x00" * round(sample_rate * 0.05)
+    output = BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(silence + b"".join(samples) + silence)
+    return output.getvalue()
 
 
 class WebViewTests(unittest.TestCase):
@@ -30,6 +52,17 @@ class WebViewTests(unittest.TestCase):
         self.assertIn("Record", content)
         self.assertIn("start_session", content)
         self.assertIn("/ws/audio/", content)
+        self.assertIn("Audio Bank", content)
+        self.assertIn("Record Word", content)
+        self.assertIn("Record Gibberish", content)
+        self.assertIn("Validate Bank", content)
+        self.assertIn("Use Bank Config", content)
+        self.assertIn("Download Config JSON", content)
+        self.assertIn("Load Config JSON", content)
+        self.assertIn("Start Filter", content)
+        self.assertIn("Input Seconds", content)
+        self.assertIn("Output Seconds", content)
+        self.assertIn("Speed", content)
 
     def test_config_endpoint_updates_runtime_config(self):
         response = self.client.post(
@@ -90,6 +123,26 @@ class WebViewTests(unittest.TestCase):
         self.assertEqual(start.status_code, 200)
         self.assertTrue(start.json()["status"]["enabled"])
 
+    def test_audio_bank_recording_endpoint_updates_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("live_gibberish_web.views.AUDIO_BANK_ROOT", Path(temp_dir)):
+                response = self.client.post(
+                    "/api/audio-bank/recording/",
+                    data={
+                        "user_id": "web-user",
+                        "kind": "whitelist",
+                        "word": "Hello!",
+                        "file": SimpleUploadedFile("hello.wav", wav_bytes(), content_type="audio/wav"),
+                    },
+                )
+                status = self.client.get("/api/audio-bank/status/?user_id=web-user&whitelist=hello")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("hello", response.json()["manifest"]["whitelist"])
+        self.assertEqual(status.status_code, 200)
+        self.assertFalse(status.json()["ok"])
+        self.assertIn("missing-gibberish-bucket", [issue["code"] for issue in status.json()["validation"]["issues"]])
+
 
 class WebSocketTests(unittest.IsolatedAsyncioTestCase):
     async def test_audio_websocket_records_session_and_saves_output_wav(self):
@@ -143,6 +196,12 @@ class WebSocketTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(saved["input_wav"]).exists())
             self.assertTrue(Path(saved["output_wav"]).exists())
             self.assertEqual(saved["segments"], 1)
+            self.assertIn("benchmark", saved)
+            self.assertEqual(saved["benchmark"]["input_bytes"], config.sample_rate * config.sample_width_bytes)
+            self.assertEqual(saved["benchmark"]["output_bytes"], config.bytes_per_frame)
+            self.assertAlmostEqual(saved["benchmark"]["input_seconds"], 1.0)
+            self.assertAlmostEqual(saved["benchmark"]["output_seconds"], config.frame_seconds)
+            self.assertGreaterEqual(saved["benchmark"]["processing_seconds"], 0.0)
             await communicator.disconnect()
         finally:
             consumers._process_recorded_session = original_processor
