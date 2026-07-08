@@ -10,6 +10,7 @@ public sealed class VoiceChatConfig
     [Min(0f)] public float maxVoiceDistance = 18f;
     [Min(0f)] public float voiceKeepAliveDistance = 22f;
     [Min(0f)] public float minVoiceDistance = 2f;
+    [Min(0f)] public float remoteVoiceVolume = 1.75f;
     [Min(0.1f)] public float peerReconnectDelaySeconds = 2f;
     public string stunServer = "stun:stun.l.google.com:19302";
     public bool debugLogging;

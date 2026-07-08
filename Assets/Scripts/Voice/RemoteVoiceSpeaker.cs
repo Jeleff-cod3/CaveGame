@@ -101,7 +101,7 @@ public sealed class RemoteVoiceSpeaker : IDisposable
     private void ConfigureAudioSource()
     {
         audioSource.playOnAwake = false;
-        audioSource.spatialBlend = 1f;
+        audioSource.spatialBlend = 0f;
         audioSource.rolloffMode = AudioRolloffMode.Linear;
         audioSource.minDistance = Mathf.Max(0f, config.minVoiceDistance);
         audioSource.maxDistance = Mathf.Max(audioSource.minDistance, config.maxVoiceDistance);
@@ -113,7 +113,17 @@ public sealed class RemoteVoiceSpeaker : IDisposable
     {
         if (audioSource != null)
         {
-            audioSource.volume = muted ? 0f : currentGain;
+            audioSource.volume = muted ? 0f : Mathf.Clamp01(currentGain * EffectiveRemoteVoiceVolume());
         }
+    }
+
+    private float EffectiveRemoteVoiceVolume()
+    {
+        if (config == null || config.remoteVoiceVolume <= 0f)
+        {
+            return 1.75f;
+        }
+
+        return config.remoteVoiceVolume;
     }
 }

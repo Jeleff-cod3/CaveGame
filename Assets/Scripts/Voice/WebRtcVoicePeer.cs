@@ -396,9 +396,11 @@ public sealed class WebRtcVoicePeer : IDisposable
     {
         IceConnectionState = state.ToString();
         LogDebug($"Voice ICE state {localPlayerId}->{RemotePlayerId}: {state}");
-        if (state == RTCIceConnectionState.Failed)
+        if (state == RTCIceConnectionState.Failed
+            || state == RTCIceConnectionState.Disconnected
+            || state == RTCIceConnectionState.Closed)
         {
-            PeerFailed?.Invoke(this, "ICE connection failed.");
+            PeerFailed?.Invoke(this, $"ICE connection {state}.");
         }
     }
 

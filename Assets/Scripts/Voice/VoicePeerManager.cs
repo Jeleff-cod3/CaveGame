@@ -352,7 +352,7 @@ public sealed class VoicePeerManager : IDisposable
         }
 
         string remotePlayerId = peer.RemotePlayerId;
-        LogDebug($"Voice peer {remotePlayerId} failed: {reason}");
+        Debug.LogWarning($"Voice peer {remotePlayerId} failed and will retry: {reason}");
         retryAllowedAtByPlayerId[remotePlayerId] = Time.unscaledTime + Mathf.Max(0.1f, config.peerReconnectDelaySeconds);
         RemovePeer(remotePlayerId);
     }
